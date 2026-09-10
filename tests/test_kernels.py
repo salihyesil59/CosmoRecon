@@ -172,3 +172,68 @@ def test_unknown_kernel_names_are_refused():
 
     with pytest.raises(ValueError, match="Unknown kernel"):
         get_kernel("gaussian-ish")
+
+
+# ============================================================
+# Every default cell has to be representable
+# ============================================================
+
+@pytest.mark.parametrize("kernel", [
+    SquaredExponential(), Matern(), RationalQuadratic(), Cauchy(),
+])
+def test_every_default_grid_cell_is_representable(kernel):
+    """
+    The regression test for a failure that only showed up sometimes.
+
+    A fit explores length scales from a twentieth of the data's span to twice
+    it, and every combination of those with the kernel's own shape grid has to
+    reach the quadrature tolerance. When one does not, the fit succeeds or
+    fails depending on which cell the hyperparameter posterior happened to
+    sample -- which looks like a random crash and is really a kernel that
+    cannot be carried in the basis.
+
+    That is exactly what ``nu = 1`` did before it was taken off the Matern
+    grid: fine at a length scale of 0.37, four thousand nodes short at 0.29.
+    """
+
+    span = 1.9
+
+    grid = kernel.shape_grid()
+
+    combinations = (
+        [
+            dict(zip(grid, values, strict=True))
+            for values in zip(*grid.values(), strict=True)
+        ]
+        if grid
+        else [{}]
+    )
+
+    worst = 0
+
+    for shape in combinations:
+
+        for length_scale in np.geomspace(span / 20.0, 2.0 * span, 24):
+
+            omega, _, error = kernel.spectral_quadrature(
+                float(length_scale), span, **shape
+            )
+
+            assert error <= 3e-4
+
+            worst = max(worst, omega.size)
+
+    # And with room to spare, so that a slightly different dataset does not
+    # walk off the end of the refinement.
+    assert worst <= 2048, f"needs {worst} nodes, close to the 4096 ceiling"
+
+
+def test_the_default_matern_grid_supports_a_first_derivative():
+    """
+    Every member of the default grid is at least once differentiable, so
+    ``H'(z)`` -- and therefore ``w(z)`` -- exists across the whole prior
+    rather than across most of it.
+    """
+
+    for nu in Matern.DEFAULT_NU_GRID:
+        assert Matern().max_derivative(nu=nu) >= 1

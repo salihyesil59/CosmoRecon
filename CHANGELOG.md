@@ -151,8 +151,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   DESI-scale deviation from a cosmological constant, which is the correct
   answer and the one a tool measuring its own assumptions would not give.
 
-- Test suite (144 tests) covering the core contract, the kernels, the GP,
-  cosmography and the data layer: sample paths checked against the exact GP posterior to the
+- **`ensemble.MethodEnsemble`** — the layer the rest of the library was shaped
+  to make possible. Fits every member to one dataset, pools their draws by
+  weight, and reports a null test under each method and under the mixture.
+
+  - **The method-marginalised posterior is a full reconstruction, not a
+    summary.** Each pooled draw still knows which member's function it is, so
+    the mixture regrids and differentiates like anything else — and is only as
+    differentiable as its roughest member, which it says, naming that member.
+  - **A member that cannot fit raises rather than being skipped.** A spread
+    across four methods reported as though it were across five is exactly the
+    quiet error this library exists to prevent.
+  - Checked against the budget it is supposed to equal: the variance of the
+    pooled draws matches the analytic law-of-total-variance split to 0.3% at
+    the median, by two independent routes.
+
+- **Method marginalisation is shown to repair a miscalibrated method**, which
+  is the argument for the whole library and is now measured rather than
+  asserted. Over 24 realisations of ΛCDM chronometers, the nominal 68%
+  interval of a Padé[2/1] fit contains the truth **44.6%** of the time; the
+  Chebyshev series 59–63%; the Gaussian processes 70%; the method-marginalised
+  posterior **70.8%**.
+
+  The Padé number is not a defect in the fit — its posterior is exactly right
+  for its model. The model is wrong: a three-parameter rational function cannot
+  contain a ΛCDM expansion history, and its posterior covers the uncertainty in
+  its coefficients, not the error it makes by being the wrong shape. Nothing
+  inside a single-method analysis can see that. The between-method scatter is
+  the missing term, and pooling restores the calibration.
+
+### Changed
+
+- **The default Matérn grid now starts at `nu = 3/2`** rather than `nu = 1`,
+  for two reasons that point the same way: below 3/2 the spectral tail is heavy
+  enough that the sample-path basis cannot reproduce the kernel across the
+  whole range of length scales a fit explores — `nu = 1` needed four thousand
+  quadrature nodes at the short end and would otherwise have failed on some
+  fits and not others — and such a process is at most zero times
+  differentiable, so nothing downstream could use it.
+
+  The consequence is a real improvement: **the default Gaussian process now
+  supports `H'(z)`, and therefore `w(z)`, without restricting the prior.** A
+  second derivative still has to be bought explicitly, because Matérn-3/2 does
+  not have one.
+
+  A regression test now sweeps every cell of every kernel's default grid across
+  the full length-scale range, which is what would have caught this before it
+  shipped.
+
+- Test suite (164 tests) covering the core contract, the kernels, the GP,
+  cosmography, the data layer and the ensemble: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

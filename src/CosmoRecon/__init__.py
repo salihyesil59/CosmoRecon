@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from CosmoRecon.core import (
     AlignmentError,
+    ConvergenceError,
     CosmoReconError,
     C_LIGHT_KM_S,
     DerivativeUnavailableError,
@@ -49,6 +50,7 @@ from CosmoRecon.core import (
 
 from CosmoRecon.reconstructors import (
     Cauchy,
+    Cosmography,
     GaussianProcess,
     Matern,
     RationalQuadratic,
@@ -72,6 +74,7 @@ __all__ = [
     "Provenance",
     # reconstruction
     "GaussianProcess",
+    "Cosmography",
     "SquaredExponential",
     "Matern",
     "RationalQuadratic",
@@ -93,6 +96,7 @@ __all__ = [
     # the errors a user will actually meet
     "CosmoReconError",
     "AlignmentError",
+    "ConvergenceError",
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",

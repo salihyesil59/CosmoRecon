@@ -189,7 +189,7 @@ Members:
 | module | method | derivative | evidence |
 |---|---|---|---|
 | `gp.py` ✅ | Gaussian process; SqExp, Matérn(ν), RQ, Cauchy, **ν free** | analytic | marginal likelihood |
-| `cosmography.py` | Taylor, Padé(m,n), Chebyshev, y-redshift, log-polynomial | analytic | yes |
+| `cosmography.py` ✅ | Chebyshev/monomial in z, y or ln(1+z); Padé(m,n); **order free** | analytic | closed form |
 | `nodal.py` | flexknot / nodal spline, node count sampled | analytic | nested sampling |
 | `pca.py` | PCA and binned `w(z)` with a correlation prior | analytic | yes |
 | `ann.py` | neural reconstruction (REFANN-style) | autodiff | no |
@@ -210,6 +210,25 @@ Three commitments the incumbent (GaPP, 2012) does not make:
   not a posterior on anything. `d()` raises, reports what fraction of the
   posterior *does* support the order, and names the prior restriction that
   would buy it.
+
+And two that `cosmography.py` adds:
+
+- **A series is refused outside its radius of convergence.** A cosmological
+  distance is singular at `z = -1`, so a Taylor series in `z` converges only
+  for `|z| < 1`, and past that radius more terms make the truncation worse.
+  Supernovae reach `z ≈ 2.3`. `ConvergenceError` is raised at fit time, not
+  quietly absorbed into a wide interval — this is a different category from
+  `ExtrapolationWarning`, which is about leaving the *data*, not about leaving
+  the region where the model means anything.
+- **The order is marginalised.** The model is linear-Gaussian, so each order's
+  evidence is closed form and the order carries a posterior like anything else.
+
+One correction the module makes to standard practice: a Chebyshev series and a
+monomial series of the same degree in the same variable **span the same
+functions**. Listing "Taylor, Chebyshev and Padé" as three comparable methods
+double-counts one model. They differ here only through the coefficient prior
+and through conditioning; forced flat, the two posteriors coincide, and the
+test suite checks it.
 
 The sample-path basis is a **quadrature** on the kernel's spectral density,
 not a sample from it. Random Fourier features — the standard construction —

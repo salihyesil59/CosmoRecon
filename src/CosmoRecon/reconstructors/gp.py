@@ -74,7 +74,7 @@ from CosmoRecon.core.grid import check_within_support
 from CosmoRecon.core.provenance import Origin, Provenance
 from CosmoRecon.core.reconstruction import Reconstruction
 
-from CosmoRecon.reconstructors.base import Reconstructor
+from CosmoRecon.reconstructors.base import Reconstructor, unpack_dataset
 from CosmoRecon.reconstructors.kernels import Kernel, get_kernel
 
 
@@ -93,113 +93,6 @@ _JITTER = 1e-10
 #: when it cannot be. One percent is the point at which "the posterior does
 #: not support this" stops being an overstatement.
 _SMOOTHNESS_QUANTILE = 0.01
-
-
-# ============================================================
-# Data
-# ============================================================
-
-def _unpack(data) -> tuple[Array, Array, Array, str]:
-    """
-    Pull ``(z, y, covariance, label)`` out of whatever was passed.
-
-    Accepts a single dataset or a sequence of them. A sequence is
-    concatenated with a **block-diagonal** covariance, which asserts that the
-    datasets are mutually independent -- true for cosmic chronometers and
-    supernovae, false for a BAO measurement and a full-shape analysis of the
-    same galaxies. The assertion is the caller's; this only makes it explicit.
-    """
-
-    if isinstance(data, (list, tuple)):
-
-        parts = [_unpack(item) for item in data]
-
-        z = np.concatenate([p[0] for p in parts])
-        y = np.concatenate([p[1] for p in parts])
-
-        cov = linalg.block_diag(*[p[2] for p in parts])
-
-        labels = {p[3] for p in parts}
-
-        if len(labels) > 1:
-
-            raise DataError(
-                f"These datasets measure different quantities ({sorted(labels)}) "
-                "and cannot be reconstructed as one function. Fit them "
-                "separately, or convert them to a common observable first."
-            )
-
-        return z, y, cov, parts[0][3]
-
-    z = _require(data, ("z",), "measurement redshifts")
-
-    y = _require(data, ("y", "H", "value", "values"), "measured values")
-
-    if z.size != y.size:
-
-        raise DataError(
-            f"{z.size} redshifts and {y.size} values do not pair up."
-        )
-
-    if z.size < 3:
-
-        raise DataError(
-            f"{z.size} measurements are not enough to reconstruct a function. "
-            "A Gaussian process fitted to two points is its prior."
-        )
-
-    cov = getattr(data, "cov", None)
-
-    if cov is None:
-        cov = getattr(data, "covariance", None)
-
-    if cov is None:
-
-        sigma = _require(data, ("sigma", "err", "error", "dy"), "uncertainties")
-
-        if sigma.size != z.size:
-
-            raise DataError(
-                f"{sigma.size} uncertainties for {z.size} measurements."
-            )
-
-        cov = np.diag(sigma.astype(float) ** 2)
-
-    else:
-        cov = np.atleast_2d(np.asarray(cov, dtype=float))
-
-    if cov.shape != (z.size, z.size):
-
-        raise DataError(
-            f"Covariance has shape {cov.shape}, expected "
-            f"({z.size}, {z.size})."
-        )
-
-    label = str(
-        getattr(data, "observable", None)
-        or getattr(data, "label", None)
-        or "f"
-    )
-
-    order = np.argsort(z)
-
-    return z[order], y[order], cov[np.ix_(order, order)], label
-
-
-def _require(data, names: tuple[str, ...], what: str) -> Array:
-
-    for name in names:
-
-        value = getattr(data, name, None)
-
-        if value is not None:
-
-            return np.atleast_1d(np.asarray(value, dtype=float)).ravel()
-
-    raise DataError(
-        f"Cannot find {what} on {type(data).__name__}: looked for "
-        f"{' , '.join(names)}."
-    )
 
 
 # ============================================================
@@ -598,7 +491,7 @@ class GaussianProcess(Reconstructor):
         origin: Origin,
     ) -> Mapping[str, Reconstruction]:
 
-        z, y, cov, label = _unpack(data)
+        z, y, cov, label = unpack_dataset(data)
 
         # A weak prior on the overall level, carried as one extra constant
         # feature. Without it the posterior decays towards zero outside the
@@ -839,7 +732,7 @@ class GaussianProcess(Reconstructor):
         ways.
         """
 
-        z, y, cov, _ = _unpack(data)
+        z, y, cov, _ = unpack_dataset(data)
 
         z_star = np.atleast_1d(np.asarray(z_star, dtype=float))
 

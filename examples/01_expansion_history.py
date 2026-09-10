@@ -19,6 +19,9 @@ What it shows, in order:
 4. The Om(z) null test, built by ordinary arithmetic on the reconstruction,
    with the correlations propagating exactly because they were never
    summarised away.
+5. The variance budget across five reconstruction methods: how much of the
+   error bar is a measurement and how much is a choice. This is the number the
+   library exists to produce and that no other tool produces.
 """
 
 from __future__ import annotations
@@ -33,11 +36,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from CosmoRecon import (                                          # noqa: E402
+    Cosmography,
     ExtrapolationWarning,
     GaussianProcess,
     Matern,
     significance,
 )
+from CosmoRecon.ensemble import total_variance                     # noqa: E402
 from tests.toy import chronometers, lcdm_H                        # noqa: E402
 
 
@@ -174,5 +179,57 @@ print(f"   chi2 = {chi2:.2f} over {n_eff} effective dof "
       f"(from {Om.n_z} grid points)")
 print(f"   p = {pte:.3f}  ->  {sigma:.2f} sigma from constant")
 print(f"   expression: {Om.provenance.expression}")
+
+print()
+
+
+# ============================================================
+# 5. How much of the error bar is a choice
+# ============================================================
+
+rule("5. Variance budget across five methods")
+
+members = {
+    "GP(Matern, nu free)": GaussianProcess(kernel="matern"),
+    "GP(squared exp)": GaussianProcess(kernel="squared_exponential"),
+    "Chebyshev(y)": Cosmography("y"),
+    "Chebyshev(log)": Cosmography("log"),
+    "Pade[2/1](y)": Cosmography(pade=(2, 1)),
+}
+
+means = {}
+variances = {}
+
+for name, method in members.items():
+
+    curve = method.fit(data, grid=grid, n_draws=2000, seed=4)["H"]
+
+    means[name] = curve.mean()
+    variances[name] = curve.var()
+
+budget = total_variance(means, variances, dict.fromkeys(members, 1.0), grid)
+
+print("   at z = 1.0, every method agrees on the value:")
+
+for name in members:
+    print(f"     {name:22s} {np.interp(1.0, grid, means[name]):7.2f}"
+          f" +/- {np.interp(1.0, grid, np.sqrt(variances[name])):.2f}")
+
+print(f"     {'truth':22s} {lcdm_H(1.0):7.2f}")
+
+print()
+print("   but the disagreement between them is not uniform in redshift:")
+print(f"   {'z':>6s} {'statistical':>12s} {'method':>8s} {'method share':>13s}"
+      f" {'inflation':>10s}")
+
+for i in (0, 6, 12, 18, 24):
+    print(f"   {grid[i]:6.2f} {np.sqrt(budget.statistical[i]):12.2f}"
+          f" {np.sqrt(budget.methodological[i]):8.2f}"
+          f" {100 * budget.method_fraction()[i]:12.0f}%"
+          f" {budget.inflation()[i]:10.2f}")
+
+print()
+print(f"   {budget.summary()}")
+print("   -- the method share does not shrink with more data")
 
 print()

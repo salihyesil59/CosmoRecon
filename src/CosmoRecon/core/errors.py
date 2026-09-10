@@ -15,6 +15,7 @@ from __future__ import annotations
 __all__ = [
     "CosmoReconError",
     "AlignmentError",
+    "ConvergenceError",
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",
@@ -85,6 +86,27 @@ class NotResamplableError(CosmoReconError):
     predictor: ``H**2 * D.d(1)**2`` cannot be re-evaluated at a new redshift
     because the operation was applied to samples, not to functions. Move the
     ``at()`` call to the *operands*, before the arithmetic.
+    """
+
+
+class ConvergenceError(CosmoReconError):
+    """
+    A series expansion was used outside the region where it converges.
+
+    Distinct from :class:`~CosmoRecon.core.grid.ExtrapolationWarning`, and the
+    difference is the reason this is an error and that is a warning.
+    Extrapolating past the data is a weak statement -- the answer is the prior,
+    which is a defensible thing to look at. A truncated series outside its
+    radius of convergence is not a weak statement about the function; it is not
+    a statement about the function at all, and adding terms makes it worse
+    rather than better.
+
+    The case that matters in practice: the Taylor series of a cosmological
+    distance in ``z`` has radius of convergence ``|z| = 1``, because of the
+    singularity at ``z = -1``. Fitting one to supernovae reaching ``z = 2`` and
+    reading off a jerk parameter is the single most common error in the
+    cosmographic literature, and it is what the ``y = z / (1 + z)`` variable
+    was introduced to fix.
     """
 
 

@@ -59,7 +59,7 @@ from CosmoRecon.reconstructors import (
     SquaredExponential,
 )
 
-from CosmoRecon.consistency import NullTest, TestResult, significance
+from CosmoRecon.consistency import NullTest, Om, Om3, TestResult, significance
 
 from CosmoRecon.ensemble import MethodEnsemble, VarianceBudget
 
@@ -85,6 +85,8 @@ __all__ = [
     "NullTest",
     "TestResult",
     "significance",
+    "Om",
+    "Om3",
     "MethodEnsemble",
     "VarianceBudget",
     # grids

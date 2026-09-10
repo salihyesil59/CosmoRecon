@@ -10,12 +10,13 @@ The shared machinery -- effective degrees of freedom, the eigenbasis
 chi-square, the Hartlap correction -- lives in :mod:`.base` and is the part
 these analyses most often get wrong when written by hand.
 
-Planned members:
+Members:
 
-``om.py``
-    ``Om(z)`` and ``Om3(z)``, the Sahni-Shafieloo-Starobinsky diagnostics.
-    Constant at ``Omega_m`` in flat LCDM; its *slope* separates quintessence
-    from phantom without fitting either.
+``om.py`` (done)
+    ``Om`` and ``Om3``, the Sahni-Shafieloo-Starobinsky diagnostics. ``Om`` is
+    constant at ``Omega_m`` in flat LCDM; ``Om3`` is exactly 1, needs neither
+    ``H0`` nor ``Omega_m``, and therefore needs no extrapolation to ``z = 0``
+    -- which is what ``Om`` on cosmic chronometers is quietly standing on.
 
 ``curvature.py``
     ``Ok(z)``, the Clarkson-Bassett-Lu test. Measures spatial curvature from
@@ -50,10 +51,16 @@ from CosmoRecon.consistency.base import (
     significance,
 )
 
+from CosmoRecon.consistency.om import Om, Om3
+
 
 __all__ = [
+    # the contract
     "NullTest",
     "TestResult",
     "significance",
     "effective_modes",
+    # tests
+    "Om",
+    "Om3",
 ]

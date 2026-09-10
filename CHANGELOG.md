@@ -233,6 +233,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `Cosmography.best_cell` reports the highest-evidence order and prior width
     per observable, replacing a reach into private state.
 
+- **`consistency.Curvature`** — the Clarkson-Bassett-Lu test. `Ok(z)` is
+  `Omega_k` in *any* FLRW universe, whatever the dark energy, so a departure
+  from constancy is evidence against homogeneity and isotropy rather than about
+  dark energy. The strongest claim the library can make, and the first real
+  consumer of the joint fit.
+
+  - Written in BAO observables the whole calibration collapses to one
+    multiplicative constant, so **two of the three questions need none of it**:
+    whether the universe is FLRW (is it constant?) and whether it is flat (is
+    it zero?). Only a specific non-zero `Omega_k` needs `c / H0 r_d`, and the
+    class asks rather than assuming.
+  - Recovers a known `Omega_k` from `-0.10` to `+0.10` to four decimals, from a
+    toy whose transverse distance is integrated and differentiated numerically
+    — deliberately not through the FLRW relation, which is what the test
+    checks.
+  - **On real DESI DR2 data it reports that the data cannot support it.** Four
+    nearly identical polynomial reconstructions of the same twelve numbers give
+    `0.28`, `2.09`, `4.42` and a formally infinite sigma; the
+    method-marginalised answer is `0.41 sigma`, consistent with FLRW. A
+    decisive violation of the Copernican principle is available to whoever
+    picks the right expansion variable, and nothing inside a single-method
+    analysis could tell.
+
+### Fixed
+
+- **`MethodEnsemble` silently dropped every observable but one.** Handed a
+  joint fit, it kept whichever name sorted first and discarded the rest — so a
+  budget asked for `D_M/r_d` could quietly be a budget for `D_H/r_d`. Exactly
+  the class of error the library exists to prevent, found while building the
+  first test that needed two observables.
+
+  `EnsembleFit` now carries a whole `ReconstructionSet` per method;
+  `budget(observable)` and `curves(observable)` name which one; and the pooled
+  mixture chooses its `(member, realisation)` assignment **once** and applies
+  it to every observable, so a joint fit's observables stay aligned across the
+  mixture as they were within each member. The `D_M`-`D_H` correlation survives
+  pooling at `-0.35 .. -0.57`.
+
+  `significance` now hands the statistic the whole set rather than one curve,
+  which is what lets a two-observable null test be written the same way as a
+  one-observable one.
+
 ### Changed
 
 - **The default Matérn grid now starts at `nu = 3/2`** rather than `nu = 1`,
@@ -252,9 +294,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (190 tests) covering the core contract, the kernels, the GP,
-  cosmography, joint fits, the data layer, the ensemble and the Om
-  diagnostics: sample paths checked against the exact GP posterior to the
+- Test suite (204 tests) covering the core contract, the kernels, the GP,
+  cosmography, joint fits, the data layer, the ensemble, the Om diagnostics
+  and the curvature test: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

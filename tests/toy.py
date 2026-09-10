@@ -185,3 +185,141 @@ def lcdm_H(z, H0=70.0, Om=0.3):
     z = np.asarray(z, dtype=float)
 
     return H0 * np.sqrt(Om * (1 + z) ** 3 + 1 - Om)
+
+
+# ============================================================
+# A curved FLRW universe, in BAO observables
+# ============================================================
+
+class CurvedFLRW:
+    """
+    ``D_M/r_d`` and ``D_H/r_d`` for a universe with spatial curvature.
+
+    Built for the Clarkson-Bassett-Lu test, which needs both together. The
+    transverse distance is integrated numerically and its derivative is taken
+    numerically from that integral -- deliberately **not** from the FLRW
+    relation ``D_M' = D_H sqrt(1 + Ok (H0 D_M/c)^2)``, since that relation is
+    what the test is checking and using it here would make the check circular.
+
+    ``distort`` multiplies the radial distance by ``1 + distort * z``, which
+    breaks the FLRW relation without breaking either function's smoothness --
+    an injected violation the test has to find.
+    """
+
+    C_KM_S = 299792.458
+
+    def __init__(self, Om=0.30, Ok=0.0, H0=70.0, rd=147.0, n_draws=400,
+                 sigma_Om=1e-9, sigma_H0=1e-9, sigma_Ok=1e-9,
+                 distort=0.0, seed=0):
+
+        rng = np.random.default_rng(seed)
+
+        self.Om = rng.normal(Om, sigma_Om, n_draws)
+        self.H0 = rng.normal(H0, sigma_H0, n_draws)
+
+        # Drawn, not fixed. An exactly flat universe with no other freedom
+        # gives Ok(z) = 0 with *zero* width, and a significance asked of a
+        # posterior with no width divides rounding error by rounding error.
+        # A real curvature posterior has a width, so the toy's does too.
+        self.Ok = rng.normal(Ok, sigma_Ok, n_draws)
+
+        self.rd = float(rd)
+        self.distort = float(distort)
+
+        # A fine grid the distances are built on, and differentiated on.
+        self._z = np.linspace(0.0, 4.0, 40_000)
+
+        E = np.sqrt(
+            self.Om[:, None] * (1 + self._z) ** 3
+            + self.Ok[:, None] * (1 + self._z) ** 2
+            + (1 - self.Om - self.Ok)[:, None]
+        )
+
+        # Comoving distance in units of c/H0, then the curved transverse form.
+        chi = np.concatenate(
+            [np.zeros((n_draws, 1)),
+             np.cumsum(0.5 * (1 / E[:, 1:] + 1 / E[:, :-1]) * np.diff(self._z), axis=1)],
+            axis=1,
+        )
+
+        # sinh(sqrt(Ok) chi) / sqrt(Ok) analytically continues through zero
+        # and covers both signs, so a per-draw curvature needs no branching.
+        root = np.sqrt(self.Ok.astype(complex))[:, None]
+
+        transverse = np.real(np.sinh(root * chi) / root)
+
+        hubble = self.C_KM_S / self.H0[:, None]
+
+        # In units of the sound horizon.
+        self._T = hubble * transverse / self.rd
+        self._R = hubble / E / self.rd * (1.0 + self.distort * self._z)
+
+        self._dT = np.gradient(self._T, self._z, axis=1, edge_order=2)
+
+    # ---------------------------------------------------------
+
+    @property
+    def curvature(self) -> float:
+        """The mean spatial curvature the universe was built with."""
+
+        return float(self.Ok.mean())
+
+    @property
+    def calibration(self) -> float:
+        """``c / (H0 rd)``, the constant that turns the statistic into Ok."""
+
+        return self.C_KM_S / (float(self.H0.mean()) * self.rd)
+
+    def _interp(self, table, z):
+
+        z = np.atleast_1d(np.asarray(z, dtype=float))
+
+        return np.stack([np.interp(z, self._z, row) for row in table])
+
+    def transverse(self):
+        """A predictor for ``D_M/r_d``, with a numerical first derivative."""
+
+        def predictor(z, *, derivative=0):
+
+            if derivative == 0:
+                return self._interp(self._T, z)
+
+            if derivative == 1:
+                return self._interp(self._dT, z)
+
+            raise DerivativeUnavailableError("toy provides orders 0 and 1")
+
+        return predictor
+
+    def radial(self):
+        """A predictor for ``D_H/r_d``."""
+
+        def predictor(z, *, derivative=0):
+
+            if derivative == 0:
+                return self._interp(self._R, z)
+
+            raise DerivativeUnavailableError("toy provides order 0")
+
+        return predictor
+
+
+def bao_pair(universe, z, method="toy FLRW"):
+    """
+    The two BAO observables as one aligned pair, as a joint fit would give
+    them: same origin, so they combine without an independence claim.
+    """
+
+    origin = new_origin()
+
+    provenance = Provenance(
+        method=method, data=("mock BAO(12)",), seed=0,
+        n_draws=universe.H0.size,
+    )
+
+    def wrap(predictor, label):
+        return Reconstruction.from_predictor(
+            z, predictor, provenance=provenance, origin=origin, label=label
+        )
+
+    return wrap(universe.transverse(), "DM_over_rs"), wrap(universe.radial(), "DH_over_rs")

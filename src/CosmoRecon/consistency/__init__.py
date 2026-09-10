@@ -18,11 +18,12 @@ Members:
     ``H0`` nor ``Omega_m``, and therefore needs no extrapolation to ``z = 0``
     -- which is what ``Om`` on cosmic chronometers is quietly standing on.
 
-``curvature.py``
-    ``Ok(z)``, the Clarkson-Bassett-Lu test. Measures spatial curvature from
-    ``H`` and ``D`` alone, with no dark-energy model -- and is the sharpest
-    statement available on whether the curvature preferred by some CMB
-    analyses is geometry or systematics.
+``curvature.py`` (done)
+    ``Ok(z)``, the Clarkson-Bassett-Lu test. Constant in *any* FLRW universe,
+    whatever the dark energy -- so a departure from constancy falsifies
+    homogeneity and isotropy, not a dark-energy model. Needs the transverse and
+    radial BAO distances reconstructed jointly, and needs no calibration at all
+    to ask either whether the universe is FLRW or whether it is flat.
 
 ``duality.py``
     The Etherington relation ``eta(z) = d_L / [(1 + z)^2 d_A]``, which is 1
@@ -51,6 +52,8 @@ from CosmoRecon.consistency.base import (
     significance,
 )
 
+from CosmoRecon.consistency.curvature import Curvature
+
 from CosmoRecon.consistency.om import Om, Om3
 
 
@@ -63,4 +66,5 @@ __all__ = [
     # tests
     "Om",
     "Om3",
+    "Curvature",
 ]

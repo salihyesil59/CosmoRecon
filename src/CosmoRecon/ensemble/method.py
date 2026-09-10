@@ -47,7 +47,11 @@ from CosmoRecon.consistency.base import significance as _significance
 
 from CosmoRecon.ensemble.budget import VarianceBudget, total_variance
 
-from CosmoRecon.reconstructors.base import DEFAULT_N_DRAWS, Reconstructor
+from CosmoRecon.reconstructors.base import (
+    DEFAULT_N_DRAWS,
+    ReconstructionSet,
+    Reconstructor,
+)
 
 
 __all__ = ["MethodEnsemble", "EnsembleFit", "SignificanceComparison"]
@@ -210,32 +214,40 @@ class EnsembleFit:
     """
     What every member made of the same data, and what their disagreement adds
     up to.
+
+    A member's fit is a :class:`~CosmoRecon.reconstructors.base.ReconstructionSet`,
+    not a single curve, because a joint fit produces several correlated
+    observables and dropping all but one of them would be exactly the silent
+    error this library exists to prevent. So does the pooled result: the
+    mixture assigns one ``(member, realisation)`` pair per draw and applies it
+    to *every* observable, which is what keeps ``D_M/r_d`` and ``D_H/r_d``
+    aligned across the mixture as they were within each member.
     """
 
-    __slots__ = ("_members", "_weights", "_grid", "_observable", "_marginalised")
+    __slots__ = ("_sets", "_weights", "_grid", "_observables", "_marginalised")
 
     def __init__(
         self,
-        members: Mapping[str, Reconstruction],
+        sets: Mapping[str, "ReconstructionSet"],
         weights: Mapping[str, float],
         grid: Array,
-        observable: str,
-        marginalised: Reconstruction,
+        observables: tuple[str, ...],
+        marginalised: "ReconstructionSet",
     ) -> None:
 
-        self._members = dict(members)
+        self._sets = dict(sets)
         self._weights = dict(weights)
         self._grid = grid
-        self._observable = observable
+        self._observables = observables
         self._marginalised = marginalised
 
     # ---------------------------------------------------------
 
     @property
-    def members(self) -> dict[str, Reconstruction]:
-        """Each method's own reconstruction, on the shared grid."""
+    def members(self) -> dict[str, "ReconstructionSet"]:
+        """Each method's own fit, on the shared grid."""
 
-        return dict(self._members)
+        return dict(self._sets)
 
     @property
     def weights(self) -> dict[str, float]:
@@ -243,42 +255,77 @@ class EnsembleFit:
         return dict(self._weights)
 
     @property
-    def observable(self) -> str:
+    def observables(self) -> tuple[str, ...]:
+        """What was reconstructed -- one name, or several from a joint fit."""
 
-        return self._observable
+        return self._observables
 
     @property
-    def marginalised(self) -> Reconstruction:
+    def marginalised(self) -> "ReconstructionSet":
         """
         The method-marginalised posterior: every member's draws, pooled by
         weight.
 
-        A full reconstruction, not a summary. It regrids, it differentiates,
-        and a null test built on it is a null test that does not depend on
-        which method was picked.
+        A full set of reconstructions, not a summary. Each regrids, each
+        differentiates, and a null test built on them is a null test that does
+        not depend on which method was picked. In a joint fit the observables
+        stay aligned with each other, because one draw of the mixture is one
+        realisation of one member.
         """
 
         return self._marginalised
 
     # ---------------------------------------------------------
 
-    def budget(self) -> VarianceBudget:
+    def _one(self, observable: str | None) -> str:
+
+        if observable is not None:
+
+            if observable not in self._observables:
+
+                raise KeyError(
+                    f"This ensemble reconstructed {list(self._observables)}, "
+                    f"not {observable!r}."
+                )
+
+            return observable
+
+        if len(self._observables) == 1:
+            return self._observables[0]
+
+        raise ValueError(
+            f"This is a joint fit of {list(self._observables)}, so a budget "
+            "has to name which one it is for. There is no single number "
+            "covering both."
+        )
+
+    def curves(self, observable: str | None = None) -> dict[str, Reconstruction]:
+        """One observable's reconstruction from each method."""
+
+        name = self._one(observable)
+
+        return {method: fit[name] for method, fit in self._sets.items()}
+
+    def budget(self, observable: str | None = None) -> VarianceBudget:
         """
-        The law-of-total-variance split across the members.
+        The law-of-total-variance split across the members, for one
+        observable.
 
         See :mod:`CosmoRecon.ensemble.budget`.
         """
 
+        curves = self.curves(observable)
+
         return total_variance(
-            means={name: r.mean() for name, r in self._members.items()},
-            variances={name: r.var() for name, r in self._members.items()},
+            means={name: r.mean() for name, r in curves.items()},
+            variances={name: r.var() for name, r in curves.items()},
             weights=self._weights,
             z=self._grid,
         )
 
     def significance(
         self,
-        statistic: Callable[[Reconstruction], Reconstruction],
+        statistic: Callable[["ReconstructionSet"], Reconstruction],
         null_value: float,
         *,
         marginalise_constant: bool = False,
@@ -287,29 +334,36 @@ class EnsembleFit:
         """
         Evaluate a null test under every member and under the mixture.
 
-        ``statistic`` takes a reconstruction and returns the ``z``-dependent
-        quantity to test -- ordinary arithmetic, exactly as it would be
-        written for a single method:
+        ``statistic`` takes a whole
+        :class:`~CosmoRecon.reconstructors.base.ReconstructionSet` and returns
+        the ``z``-dependent quantity to test -- so a test needing two
+        correlated observables is written the same way as one needing a single
+        curve:
 
         >>> fit.significance(                                    # doctest: +SKIP
-        ...     lambda H: ((H / H.at(0.0)) ** 2 - 1) / ((1 + z) ** 3 - 1),
+        ...     lambda s: Om().statistic(s["H"]),
         ...     null_value=0.3,
         ...     marginalise_constant=True,
         ... )
+        >>> fit.significance(                                    # doctest: +SKIP
+        ...     lambda s: Curvature().statistic(s["DM_over_rs"], s["DH_over_rs"]),
+        ...     null_value=0.0,
+        ...     marginalise_constant=True,
+        ... )
 
-        The same callable is applied to each member's own reconstruction and
-        to the pooled one, so nothing about the test changes between the two
-        numbers except which posterior it was evaluated on. That is what makes
-        the difference attributable to the method rather than to the analysis.
+        The same callable is applied to each member's own fit and to the
+        pooled one, so nothing about the test changes between the two numbers
+        except which posterior it was evaluated on. That is what makes the
+        difference attributable to the method rather than to the analysis.
         """
 
         per_method = {
             method: _significance(
-                statistic(curve),
+                statistic(fit),
                 null_value,
                 marginalise_constant=marginalise_constant,
             )
-            for method, curve in self._members.items()
+            for method, fit in self._sets.items()
         }
 
         pooled = _significance(
@@ -328,13 +382,13 @@ class EnsembleFit:
 
     def __len__(self) -> int:
 
-        return len(self._members)
+        return len(self._sets)
 
     def __repr__(self) -> str:
 
         return (
-            f"<EnsembleFit {len(self)} methods of {self._observable} "
-            f"on {self._grid.size} redshifts>"
+            f"<EnsembleFit {len(self)} methods of "
+            f"{list(self._observables)} on {self._grid.size} redshifts>"
         )
 
 
@@ -466,24 +520,21 @@ class MethodEnsemble:
                 "An ensemble compares methods on one question."
             )
 
-        observable = next(iter(observables))[0]
+        names = tuple(next(iter(observables)))
 
-        members = {
-            name: fit[observable]
-            for name, fit in zip(self.names, fits, strict=True)
-        }
+        sets = dict(zip(self.names, fits, strict=True))
 
         weights = self._resolve_weights()
 
-        grid_array = next(iter(members.values())).z
+        grid_array = np.asarray(fits[0][names[0]].z, dtype=float)
 
-        marginalised = self._pool(members, weights, n_draws, seed, observable)
+        marginalised = self._pool(sets, weights, names, n_draws, seed)
 
         return EnsembleFit(
-            members=members,
+            sets=sets,
             weights=weights,
-            grid=np.asarray(grid_array, dtype=float),
-            observable=observable,
+            grid=grid_array,
+            observables=names,
             marginalised=marginalised,
         )
 
@@ -522,26 +573,35 @@ class MethodEnsemble:
 
     def _pool(
         self,
-        members: dict[str, Reconstruction],
+        sets: dict[str, "ReconstructionSet"],
         weights: dict[str, float],
+        observables: tuple[str, ...],
         n_draws: int,
         seed: int,
-        observable: str,
-    ) -> Reconstruction:
+    ) -> "ReconstructionSet":
         """
         Build the method-marginalised posterior.
 
         Each member contributes a share of the pooled draws proportional to
         its weight, sampled without replacement from its own so that no
-        realisation appears twice. The pooled object keeps a predictor -- it
-        dispatches per draw to the member that produced it -- so the mixture
-        is regriddable and differentiable rather than a fixed table of
-        numbers.
+        realisation appears twice.
+
+        The ``(member, realisation)`` assignment is chosen **once** and applied
+        to every observable. That is what keeps a joint fit's observables
+        aligned across the mixture: draw ``k`` of the pooled ``D_M/r_d`` and
+        draw ``k`` of the pooled ``D_H/r_d`` are the same realisation of the
+        same member, so their correlation survives pooling exactly as it
+        survived the fit. Assigning them separately would destroy it and
+        nothing downstream would notice.
+
+        The pooled curves keep a predictor -- they dispatch per draw to the
+        member that produced them -- so the mixture is regriddable and
+        differentiable rather than a fixed table of numbers.
         """
 
         rng = np.random.default_rng([seed, 0xC05E])
 
-        names = list(members)
+        names = list(sets)
 
         shares = np.array([weights[name] for name in names], dtype=float)
 
@@ -556,56 +616,79 @@ class MethodEnsemble:
             [np.full(count, index) for index, count in enumerate(counts)]
         )
 
-        row_of_draw = np.concatenate(
-            [
-                rng.choice(members[name].n_draws, size=count, replace=False)
-                if count <= members[name].n_draws
-                else rng.integers(0, members[name].n_draws, size=count)
-                for name, count in zip(names, counts, strict=True)
-            ]
-        )
+        available = [sets[name][observables[0]].n_draws for name in names]
 
-        predictors = [members[name]._predictor for name in names]
+        row_of_draw = np.concatenate([
+            rng.choice(size, size=count, replace=False)
+            if count <= size
+            else rng.integers(0, size, size=count)
+            for size, count in zip(available, counts, strict=True)
+        ])
 
-        provenance = Provenance(
-            method=self.describe(),
-            data=members[names[0]].provenance.data,
-            hyperparameters={
-                "members": names,
-                "weights": {name: float(weights[name]) for name in names},
-            },
-            seed=seed,
-            n_draws=int(member_of_draw.size),
-            parents=tuple(members[name].provenance for name in names),
-        )
+        origin = new_origin()
 
-        if any(predictor is None for predictor in predictors):
+        members = {}
 
-            # Some member holds draws rather than a function. The mixture then
-            # can only do the same, and says so through the usual channel.
-            draws = np.concatenate(
-                [
-                    members[name].draws[row_of_draw[member_of_draw == index]]
-                    for index, name in enumerate(names)
-                ]
+        for observable in observables:
+
+            curves = [sets[name][observable] for name in names]
+
+            provenance = Provenance(
+                method=self.describe(),
+                data=curves[0].provenance.data,
+                hyperparameters={
+                    "members": names,
+                    "weights": {n: float(weights[n]) for n in names},
+                },
+                seed=seed,
+                n_draws=int(member_of_draw.size),
+                parents=tuple(curve.provenance for curve in curves),
             )
 
-            return Reconstruction.from_draws(
-                members[names[0]].z,
-                draws,
-                provenance=provenance,
-                origin=new_origin(),
-                label=observable,
-                unit=members[names[0]].unit,
-            )
+            predictors = [curve._predictor for curve in curves]
 
-        return Reconstruction.from_predictor(
-            members[names[0]].z,
-            _MixturePaths(predictors, names, member_of_draw, row_of_draw),
-            provenance=provenance,
-            origin=new_origin(),
-            label=observable,
-            unit=members[names[0]].unit,
+            if any(predictor is None for predictor in predictors):
+
+                # Some member holds draws rather than a function. The mixture
+                # then can only do the same, and says so through the usual
+                # channel.
+                draws = np.concatenate([
+                    curve.draws[row_of_draw[member_of_draw == index]]
+                    for index, curve in enumerate(curves)
+                ])
+
+                members[observable] = Reconstruction.from_draws(
+                    curves[0].z,
+                    draws,
+                    provenance=provenance,
+                    origin=origin,
+                    label=observable,
+                    unit=curves[0].unit,
+                )
+
+            else:
+
+                members[observable] = Reconstruction.from_predictor(
+                    curves[0].z,
+                    _MixturePaths(predictors, names, member_of_draw, row_of_draw),
+                    provenance=provenance,
+                    origin=origin,
+                    label=observable,
+                    unit=curves[0].unit,
+                )
+
+        first = sets[names[0]]
+
+        return ReconstructionSet(
+            members,
+            origin=origin,
+            support=first.support,
+            provenance=Provenance(
+                method=self.describe(),
+                data=first.provenance.data,
+                seed=seed,
+                n_draws=int(member_of_draw.size),
+            ),
         )
 
     # ---------------------------------------------------------

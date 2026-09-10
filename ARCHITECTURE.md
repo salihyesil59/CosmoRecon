@@ -294,7 +294,7 @@ that is entirely correlation.
 |---|---|---|
 | `om.py` ✅ | `Om(z)` | constant (`= Omega_m`) |
 | `om.py` ✅ | `Om3(z1,z2,z3)` — no `H0`, no `Omega_m`, no extrapolation | **exactly 1** |
-| `curvature.py` | `Ok(z)` (Clarkson–Bassett–Lu) | constant, `= Omega_k` |
+| `curvature.py` ✅ | `Ok(z)` (Clarkson–Bassett–Lu) — needs the joint fit | constant, `= Omega_k` |
 | `duality.py` | Etherington `eta(z) = d_L / [(1+z)^2 d_A]`; cosmic opacity | `1` |
 | `litmus.py` | `L(z)` litmus test for `Lambda` | `0` |
 | `growth.py` | growth–geometry consistency: does measured `f sigma_8` match the growth *implied by* the reconstructed geometry under GR? | `0` |

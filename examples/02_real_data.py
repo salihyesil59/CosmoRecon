@@ -19,6 +19,10 @@ Three things come out of it:
 3. Two null tests of the cosmological constant on the real expansion history,
    under every method and under the mixture -- and the difference between a
    diagnostic that needs a calibration and one that does not.
+4. The Clarkson-Bassett-Lu curvature test on DESI DR2, which is where the
+   library's argument stops being methodological and starts changing what a
+   result is: the same twelve numbers support anything from no violation of
+   the Copernican principle to a decisive one, depending only on the method.
 """
 
 from __future__ import annotations
@@ -32,7 +36,9 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from CosmoRecon import (                                          # noqa: E402
+    C_LIGHT_KM_S,
     Cosmography,
+    Curvature,
     ExtrapolationWarning,
     GaussianProcess,
     MethodEnsemble,
@@ -105,14 +111,14 @@ cc_fit = ensemble().fit(cc, grid=cc_grid, n_draws=2000, seed=4)
 
 print("   at z = 1, every method agrees:")
 
-for name, curve in cc_fit.members.items():
+for name, curve in cc_fit.curves("H").items():
     at_one = curve.at(1.0)
     print(f"     {name:36s} {float(at_one.mean()[0]):7.2f}"
           f" +/- {float(at_one.std()[0]):4.2f}")
 
 print()
 
-show(cc_fit.budget(), cc_grid, (0, 8, 16, 24))
+show(cc_fit.budget("H"), cc_grid, (0, 8, 16, 24))
 
 
 # ============================================================
@@ -132,7 +138,7 @@ bao_fit = ensemble().fit(transverse, grid=bao_grid, n_draws=2000, seed=4)
 
 print()
 
-show(bao_fit.budget(), bao_grid, (0, 8, 16, 24))
+show(bao_fit.budget("DM_over_rs"), bao_grid, (0, 8, 16, 24))
 
 
 # ============================================================
@@ -167,13 +173,13 @@ for test, note in [
         warnings.simplefilter("ignore", ExtrapolationWarning)
 
         comparison = cc_fit.significance(
-            test.statistic,
+            lambda s, t=test: t.statistic(s["H"]),
             test.null_value,
             marginalise_constant=test.null_is_free_constant,
             name=test.name,
         )
 
-        curve = test.statistic(cc_fit.marginalised)
+        curve = test.statistic(cc_fit.marginalised["H"])
 
     print(f"     runs {curve.mean().min():.3f} to {curve.mean().max():.3f},"
           f" typical width +/- {np.median(curve.std()):.3f}")
@@ -188,5 +194,65 @@ print("   Both are consistent with a cosmological constant, under every method")
 print("   and under the mixture. Thirty-two differential ages cannot see a")
 print("   DESI-scale deviation, and a tool that said otherwise would be")
 print("   measuring its own assumptions.")
+
+
+# ============================================================
+# 5. The curvature test, and a dataset that cannot support it
+# ============================================================
+
+rule("5. Ok(z) from DESI DR2, and what it is worth")
+
+# Ok(z) = [H^2 D_M'^2 - c^2] / [H0^2 D_M^2] is Omega_k in *any* FLRW universe,
+# whatever the dark energy does. A departure from constancy is therefore not
+# evidence about dark energy; it is evidence against homogeneity and isotropy.
+#
+# It needs D_M/r_d and D_H/r_d together -- one of them differentiated -- so the
+# two are reconstructed jointly and their correlation is carried into the
+# statistic. Selecting them separately and pairing the results is refused.
+
+joint = bao.select("DM_over_rs", "DH_over_rs")
+
+print(f"   {len(joint)} measurements of {list(joint.quantities())},"
+      " reconstructed together")
+
+ok_grid = np.linspace(0.60, 2.25, 20)
+
+ok_fit = MethodEnsemble([
+    Cosmography("y"),
+    Cosmography("log"),
+    Cosmography("y", order=3),
+    Cosmography("y", family="monomial"),
+]).fit(joint, grid=ok_grid, n_draws=4000, seed=4)
+
+# c / (H0 r_d) from DESI DR2's published r_d h = 101.54 Mpc. Needed only to
+# turn the statistic into Omega_k itself; the question of whether it is
+# constant needs no calibration at all.
+calibration = C_LIGHT_KM_S / (100.0 * 101.54)
+
+comparison = ok_fit.significance(
+    lambda s: Curvature(hubble_distance=calibration).statistic(
+        s["DM_over_rs"], s["DH_over_rs"]
+    ),
+    0.0,
+    marginalise_constant=True,
+    name="Ok(z), tested for constancy",
+)
+
+print()
+
+for line in comparison.summary().splitlines()[1:]:
+    print("   " + line.strip())
+
+print()
+print("   Read that column again. Four nearly identical polynomial fits to the")
+print("   same twelve numbers report anything from a fraction of a sigma to a")
+print("   formally infinite one. A violation of the Copernican principle at")
+print("   several sigma is available to whoever picks the right expansion")
+print("   variable -- and nothing inside a single-method analysis could tell.")
+print()
+print("   The honest reading is the marginalised one: six transverse and six")
+print("   radial BAO measurements, one of which has to be differentiated, do")
+print("   not constrain Ok(z). This dataset cannot answer the question, and")
+print("   saying so is the result.")
 
 print()

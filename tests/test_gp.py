@@ -32,8 +32,9 @@ from CosmoRecon.reconstructors.kernels import Cauchy, Matern, SquaredExponential
 from tests.toy import MockData, chronometers, lcdm_H
 
 
-#: nu restricted to processes that have a first derivative. Buying H'(z) with
-#: a stated prior is the intended workflow; see the error raised by the free
+#: The default grid, which supports one derivative throughout. Restricting
+#: further -- ``nu >= 2.5`` -- is how a *second* derivative is bought, with a
+#: stated prior rather than by convention; see the error raised by the free
 #: kernel in ``test_free_smoothness_refuses_a_derivative_it_cannot_support``.
 SMOOTH_NU = [1.5, 2.0, 2.5, 3.5, 5.0, 7.5]
 
@@ -219,22 +220,31 @@ def test_a_refit_with_the_same_seed_is_the_same_fit(data):
 
 def test_free_smoothness_refuses_a_derivative_it_cannot_support(fitted):
     """
-    With ``nu`` free and thirty-odd measurements, the posterior reaches down
-    to processes with no derivative at all -- so ``H'(z)`` is undefined on part
-    of the posterior it would be reported for, and the library says so and
-    says how much.
+    The default grid runs from Matern-3/2 upwards, so a first derivative
+    exists across the whole prior and ``w(z)`` is available without asking for
+    anything. A *second* is not: Matern-3/2 has none, the posterior on ``nu``
+    reaches it, and the cosmographic quantities built from ``H''`` therefore
+    do not exist on part of the posterior they would be reported for.
 
-    No other GP reconstruction code makes this check, which is why ``w(z)``
-    curves reconstructed with a Matern-3/2 kernel are published routinely.
+    The library says so, and says how much of the posterior it is speaking
+    for. No other GP reconstruction code makes this check, which is why jerk
+    parameters reconstructed with a Matern-3/2 kernel are published routinely.
     """
 
     _, fit = fitted
 
+    assert fit["H"].d(1).mean().shape == fit["H"].mean().shape
+
     with pytest.raises(DerivativeUnavailableError, match="of this posterior"):
-        _ = fit["H"].d(1).draws
+        _ = fit["H"].d(2).draws
 
 
 def test_restricting_the_prior_buys_the_derivative(data):
+    """
+    ``nu >= 3/2`` throughout gives a first derivative and stops there; the
+    second has to be bought separately, by excluding the processes that do not
+    have one.
+    """
 
     gp = GaussianProcess(kernel=Matern(nu=SMOOTH_NU))
 

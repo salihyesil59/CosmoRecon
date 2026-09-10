@@ -157,6 +157,42 @@ shrink when more data arrive. `budget.method_fraction()` is that number. It is
 not large enough to overturn anything on its own; it is large enough that
 nobody should be quoting an interval without it, and at present nobody can.
 
+```python
+fit = MethodEnsemble([
+    GaussianProcess(kernel="matern"),
+    GaussianProcess(kernel="squared_exponential"),
+    Cosmography("y"), Cosmography("log"), Cosmography(pade=(2, 1)),
+]).fit(chronometers())
+
+fit.budget()                     # the split above
+fit.marginalised                 # a full Reconstruction, not a summary
+fit.significance(statistic, 0.0) # the same test under each method, and pooled
+```
+
+### Why it is not just bookkeeping
+
+Run every method over 24 realisations of ΛCDM chronometers and count how often
+its nominal 68% interval actually contains the truth:
+
+| method | coverage of its own 68% interval |
+|---|---|
+| Padé[2/1] | **44.6%** |
+| Chebyshev in `y` | 58.8% |
+| Chebyshev in `ln(1+z)` | 62.5% |
+| GP, Matérn with `nu` free | 70.4% |
+| GP, squared exponential | 70.4% |
+| **method-marginalised** | **70.8%** |
+
+The Padé result is not a bug in the fit — the posterior is exactly right for
+that model. The model is wrong: a three-parameter rational function cannot
+contain a ΛCDM expansion history, and its posterior covers the uncertainty in
+its coefficients, not the error it makes by being the wrong shape. Nothing
+inside a single-method analysis can see that. It reports 68% and delivers 45%.
+
+The between-method scatter *is* the missing term, so pooling restores the
+calibration. That is the argument for the whole library, and it is measured
+rather than asserted — `tests/test_ensemble.py` runs it.
+
 Run `examples/02_real_data.py` to reproduce the table, and
 `examples/01_expansion_history.py` for the same machinery on mocks, where a
 known truth makes the recovery checkable.
@@ -219,8 +255,10 @@ bundled; they are reachable through the optional CosmoFit bridge.
       by refitting ΛCDM to the survey's own published parameters.
 - [ ] **`consistency/`.** `Om`, `Om3`, `Ok`, distance duality, litmus,
       growth–geometry, isotropy.
-- [ ] **`ensemble/method.py`.** `MethodEnsemble`, wrapping the budget above,
-      and significance deflation.
+- [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
+      their draws into a method-marginalised posterior that is itself a full
+      reconstruction, and reports a null test under each method and under the
+      mixture.
 - [ ] **`inverse/`.** `w(z)`, `V(phi)`, designer `f(R)`/`f(T)`/`f(Q)`,
       `mu(z) = G_eff/G`.
 - [ ] **`validation/`.** Injection–recovery and coverage, as CI tests.
@@ -246,7 +284,7 @@ path itself:
 python -m pytest
 ```
 
-144 tests, all of which run in about a minute.
+164 tests, all of which run in about a minute and a half.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

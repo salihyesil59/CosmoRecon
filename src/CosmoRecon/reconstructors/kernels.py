@@ -171,7 +171,7 @@ class Kernel(ABC):
         *,
         tol: float = 3e-4,
         n_start: int = 256,
-        n_max: int = 2048,
+        n_max: int = 4096,
         **shape: float,
     ) -> tuple[Array, Array, float]:
         """
@@ -330,14 +330,22 @@ class Matern(Kernel):
     #: (3/2 and 5/2) so that a marginalised result can be compared directly
     #: against the habit it replaces.
     #:
-    #: It stops at ``nu = 1`` rather than at the Ornstein-Uhlenbeck case
-    #: ``nu = 1/2`` for two reasons that point the same way: below ``nu = 1``
-    #: the spectral tail is too heavy for a truncated sample-path basis to
-    #: reproduce (see :meth:`Kernel.spectral_quadrature`), and such a process
-    #: is nowhere differentiable, so no derived quantity in this library --
-    #: ``w(z)``, ``q(z)``, anything cosmographic -- exists under it. Pass
-    #: ``Matern(nu=0.5)`` to use it anyway.
-    DEFAULT_NU_GRID = (1.0, 1.5, 2.0, 2.5, 3.5, 5.0, 7.5)
+    #: It stops at ``nu = 3/2`` rather than reaching down to the
+    #: Ornstein-Uhlenbeck case, for two reasons that point the same way.
+    #:
+    #: Below ``nu = 3/2`` the spectral tail is heavy enough that a truncated
+    #: sample-path basis cannot reproduce the kernel across the whole range of
+    #: length scales a fit explores -- ``nu = 1`` needs four thousand
+    #: quadrature nodes at the short end of the grid and would otherwise fail
+    #: on some fits and not others, depending on which cell the posterior
+    #: happened to sample. And such a process is at most zero times
+    #: differentiable, so no derived quantity in this library -- ``w(z)``,
+    #: ``q(z)``, anything cosmographic -- exists under it.
+    #:
+    #: ``nu = 3/2`` is also the roughest choice the literature actually makes,
+    #: so the grid still spans the habit it replaces. Pass ``Matern(nu=1.0)``
+    #: to go below it deliberately.
+    DEFAULT_NU_GRID = (1.5, 2.0, 2.5, 3.5, 5.0, 7.5)
 
     def __init__(self, nu: float | Sequence[float] | None = None) -> None:
 

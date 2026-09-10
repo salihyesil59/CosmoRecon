@@ -285,7 +285,7 @@ class GaussianProcess(Reconstructor):
         kernel: Kernel | str = "matern",
         *,
         n_nodes: int = 256,
-        max_nodes: int = 2048,
+        max_nodes: int = 4096,
         tol: float = 3e-4,
         n_length: int = 24,
         n_amplitude: int = 16,

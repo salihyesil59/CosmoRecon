@@ -61,7 +61,7 @@ from CosmoRecon.reconstructors import (
 
 from CosmoRecon.consistency import NullTest, TestResult, significance
 
-from CosmoRecon.ensemble import VarianceBudget
+from CosmoRecon.ensemble import MethodEnsemble, VarianceBudget
 
 
 __version__ = "0.1.0.dev0"
@@ -85,6 +85,7 @@ __all__ = [
     "NullTest",
     "TestResult",
     "significance",
+    "MethodEnsemble",
     "VarianceBudget",
     # grids
     "linear_grid",

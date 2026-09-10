@@ -302,9 +302,20 @@ Var_total(z) = E_method[ Var_within(z) ]  +  Var_method[ E_within(z) ]
 ```
 
 `budget.method_fraction()` is the fraction of the error bar that is a choice
-rather than a measurement. `ensemble.significance(test)` reports a null test
-before and after method marginalisation — the *"3.1 sigma becomes X sigma"*
-statement.
+rather than a measurement. `fit.significance(statistic, null)` reports a null
+test under each member and under the mixture — the *"3.1 sigma becomes X
+sigma"* statement.
+
+The mixture is a full `Reconstruction`, not a summary: each pooled draw still
+knows which member's function it is, so it regrids and differentiates, and it
+is only as differentiable as its roughest member.
+
+**Why this is not bookkeeping.** A rigid method's posterior covers the
+uncertainty in its own parameters, not the error it makes by being the wrong
+shape — so it can be confidently wrong, and nothing inside a single-method
+analysis can tell. Measured over 24 ΛCDM realisations, a Padé[2/1] fit's
+nominal 68% interval covers 44.6% of the time. Pooling across methods supplies
+exactly the missing term and brings coverage back to 70.8%.
 
 Evidence weighting is offered; equal weighting is the default. Bayesian
 evidence is comparable only across methods that are genuinely competing models

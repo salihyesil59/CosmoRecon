@@ -7,11 +7,11 @@ This is the layer the rest of the library was shaped to make possible. Because
 underneath can be swapped without touching them -- so the same null test, the
 same inversion, the same figure can be produced four ways and differenced.
 
-:mod:`.budget` holds the law-of-total-variance split and is complete.
-:mod:`.method` will hold ``MethodEnsemble``, which fits every member, pools
-their draws into a method-marginalised posterior, and reports a null test's
-significance before and after that marginalisation -- the *"3.1 sigma becomes
-X sigma"* statement.
+:mod:`.budget` holds the law-of-total-variance split; :mod:`.method` holds
+``MethodEnsemble``, which fits every member, pools their draws into a
+method-marginalised posterior, and reports a null test's significance before
+and after that marginalisation -- the *"3.1 sigma becomes X sigma"*
+statement.
 
 Equal weighting is the default. Evidence weighting is available and is not the
 default on purpose: a Bayesian evidence compares models of the *same* data
@@ -26,8 +26,17 @@ from __future__ import annotations
 
 from CosmoRecon.ensemble.budget import VarianceBudget, total_variance
 
+from CosmoRecon.ensemble.method import (
+    EnsembleFit,
+    MethodEnsemble,
+    SignificanceComparison,
+)
+
 
 __all__ = [
+    "MethodEnsemble",
+    "EnsembleFit",
+    "SignificanceComparison",
     "VarianceBudget",
     "total_variance",
 ]

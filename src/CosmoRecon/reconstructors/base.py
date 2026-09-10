@@ -21,16 +21,17 @@ from abc import ABC, abstractmethod
 from typing import Iterator, Mapping
 
 import numpy as np
+from scipy import linalg
 
 from CosmoRecon.typing import Array, Redshift
 
-from CosmoRecon.core.errors import EvidenceUnavailableError
+from CosmoRecon.core.errors import DataError, EvidenceUnavailableError
 from CosmoRecon.core.grid import linear_grid, suggested_n, support_of
 from CosmoRecon.core.provenance import Origin, Provenance, new_origin
 from CosmoRecon.core.reconstruction import Reconstruction
 
 
-__all__ = ["Reconstructor", "ReconstructionSet"]
+__all__ = ["Reconstructor", "ReconstructionSet", "unpack_dataset"]
 
 
 #: Draws taken by default. Large enough that a 95% interval is stable and a
@@ -381,3 +382,110 @@ def _data_names(data) -> tuple[str, ...]:
         return tuple(name for item in data for name in _data_names(item))
 
     return ()
+
+
+# ============================================================
+# Dataset unpacking
+# ============================================================
+
+def unpack_dataset(data) -> tuple[Array, Array, Array, str]:
+    """
+    Pull ``(z, y, covariance, label)`` out of whatever was passed.
+
+    Accepts a single dataset or a sequence of them. A sequence is
+    concatenated with a **block-diagonal** covariance, which asserts that the
+    datasets are mutually independent -- true for cosmic chronometers and
+    supernovae, false for a BAO measurement and a full-shape analysis of the
+    same galaxies. The assertion is the caller's; this only makes it explicit.
+    """
+
+    if isinstance(data, (list, tuple)):
+
+        parts = [unpack_dataset(item) for item in data]
+
+        z = np.concatenate([p[0] for p in parts])
+        y = np.concatenate([p[1] for p in parts])
+
+        cov = linalg.block_diag(*[p[2] for p in parts])
+
+        labels = {p[3] for p in parts}
+
+        if len(labels) > 1:
+
+            raise DataError(
+                f"These datasets measure different quantities ({sorted(labels)}) "
+                "and cannot be reconstructed as one function. Fit them "
+                "separately, or convert them to a common observable first."
+            )
+
+        return z, y, cov, parts[0][3]
+
+    z = _require(data, ("z",), "measurement redshifts")
+
+    y = _require(data, ("y", "H", "value", "values"), "measured values")
+
+    if z.size != y.size:
+
+        raise DataError(
+            f"{z.size} redshifts and {y.size} values do not pair up."
+        )
+
+    if z.size < 3:
+
+        raise DataError(
+            f"{z.size} measurements are not enough to reconstruct a function. "
+            "A Gaussian process fitted to two points is its prior."
+        )
+
+    cov = getattr(data, "cov", None)
+
+    if cov is None:
+        cov = getattr(data, "covariance", None)
+
+    if cov is None:
+
+        sigma = _require(data, ("sigma", "err", "error", "dy"), "uncertainties")
+
+        if sigma.size != z.size:
+
+            raise DataError(
+                f"{sigma.size} uncertainties for {z.size} measurements."
+            )
+
+        cov = np.diag(sigma.astype(float) ** 2)
+
+    else:
+        cov = np.atleast_2d(np.asarray(cov, dtype=float))
+
+    if cov.shape != (z.size, z.size):
+
+        raise DataError(
+            f"Covariance has shape {cov.shape}, expected "
+            f"({z.size}, {z.size})."
+        )
+
+    label = str(
+        getattr(data, "observable", None)
+        or getattr(data, "label", None)
+        or "f"
+    )
+
+    order = np.argsort(z)
+
+    return z[order], y[order], cov[np.ix_(order, order)], label
+
+
+def _require(data, names: tuple[str, ...], what: str) -> Array:
+
+    for name in names:
+
+        value = getattr(data, name, None)
+
+        if value is not None:
+
+            return np.atleast_1d(np.asarray(value, dtype=float)).ravel()
+
+    raise DataError(
+        f"Cannot find {what} on {type(data).__name__}: looked for "
+        f"{' , '.join(names)}."
+    )

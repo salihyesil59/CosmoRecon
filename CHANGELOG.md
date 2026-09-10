@@ -87,11 +87,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     that comparing them is a real cross-check. The rational quadratic's
     spectral density is derived as its Matérn Fourier dual.
 
-- Test suite (82 tests) covering the core contract, the kernels, and the GP:
-  sample paths checked against the exact GP posterior to the Monte-Carlo floor,
-  empirical coverage of the 68% interval over repeated realisations, the
-  analytic derivative against finite differences, and the determinism clause
-  that `at()` returns the same realisation on every grid.
+- **`reconstructors.Cosmography`** — series expansions, with the failure mode
+  the cosmographic literature is built on made impossible.
+
+  - **A series must converge where it is fitted.** A cosmological distance has
+    a singularity at `z = -1`, so its Taylor series in `z` has radius of
+    convergence `|z| = 1` — and past it, more terms make the truncation worse.
+    Supernova compilations reach `z ~ 2.3`. Fitting a `z`-series there and
+    reading off a jerk parameter is not an approximation with a large error
+    bar; it is not an approximation. `ConvergenceError` names the redshift at
+    which the fit left the radius and points at `y = z/(1+z)`, the variable
+    introduced for exactly this reason and the default here.
+  - **The order is marginalised, not chosen.** The model is linear and
+    Gaussian, so each order's evidence is closed-form and the order can carry
+    a posterior like anything else.
+  - **Derivatives to any order**, through Faà di Bruno and the partial Bell
+    polynomials, so that the chain rule from `x(z)` to `z` is exact at the
+    second, third and fourth derivatives cosmography is actually about.
+  - **Padé** built per draw from the fitted series, so the non-linear map is
+    propagated exactly. Draws whose denominator has a root in the fitted range
+    are rejected and redrawn — an approximant with a pole among the data is
+    not an expansion history — and the acceptance rate is part of the result.
+  - Corrects a comparison the literature makes routinely: a Chebyshev series
+    and a monomial series of the same degree in the same variable **span the
+    same functions**. They differ here only through the coefficient prior and
+    through conditioning. Tested: forced flat, the two posteriors coincide to
+    the Monte-Carlo floor.
+
+- **The variance budget is now a measurement.** With two independent methods
+  implemented, `ensemble.total_variance` runs on real fits. Five members — two
+  Gaussian processes, two Chebyshev series in different variables, one Padé —
+  on mock chronometers: method variance is 24% of the total on average and 55%
+  at `z = 1.5`, inflating error bars by a median factor of 1.13 and by 1.49 at
+  the worst redshift. That share does not shrink with more data.
+
+- Test suite (122 tests) covering the core contract, the kernels, the GP and
+  cosmography: sample paths checked against the exact GP posterior to the
+  Monte-Carlo floor, empirical coverage of the 68% interval over repeated
+  realisations, each kernel's covariance against its spectral density, Faà di
+  Bruno against finite differences at three orders and against the chain rule
+  written out by hand at low order, and the determinism clause that `at()`
+  returns the same realisation on every grid.
 
 - `ARCHITECTURE.md`, documenting the single design decision the rest of the
   library follows from.

@@ -17,13 +17,15 @@ Implemented so far: the contract, and the Gaussian process.
     tolerance rather than from random features, and a derivative the fitted
     smoothness does not support is refused rather than returned.
 
-The remaining methods land in this order, which is the order in which they are
-load-bearing for the library's argument:
+``cosmography.py`` (done)
+    Chebyshev and monomial series in ``z``, ``y = z/(1+z)`` or ``ln(1+z)``,
+    with Pade re-expansion. The order is marginalised rather than chosen, and
+    a series fitted outside its radius of convergence -- a Taylor series in
+    ``z`` past ``z = 1``, which is most of the cosmographic literature -- is
+    refused rather than quietly delivered.
 
-``cosmography.py``
-    Taylor, Pade, Chebyshev, ``y``-redshift and log-polynomial expansions,
-    each carrying the radius of convergence its order implies, because a
-    Taylor series in ``z`` quoted at ``z > 1`` is not a reconstruction.
+The remaining methods, in the order they are load-bearing for the library's
+argument:
 
 ``nodal.py``
     Flexknot and nodal splines with the node count sampled rather than fixed.
@@ -56,7 +58,17 @@ from CosmoRecon.reconstructors.kernels import (
     get_kernel,
 )
 
+from CosmoRecon.reconstructors.series import (
+    ExpansionVariable,
+    LogRedshift,
+    Redshift,
+    YRedshift,
+    get_variable,
+)
+
 from CosmoRecon.reconstructors.gp import GaussianProcess
+
+from CosmoRecon.reconstructors.cosmography import Cosmography
 
 
 __all__ = [
@@ -66,6 +78,7 @@ __all__ = [
     "DEFAULT_N_DRAWS",
     # methods
     "GaussianProcess",
+    "Cosmography",
     # kernels
     "Kernel",
     "SquaredExponential",
@@ -73,4 +86,10 @@ __all__ = [
     "RationalQuadratic",
     "Cauchy",
     "get_kernel",
+    # expansion variables
+    "ExpansionVariable",
+    "Redshift",
+    "YRedshift",
+    "LogRedshift",
+    "get_variable",
 ]

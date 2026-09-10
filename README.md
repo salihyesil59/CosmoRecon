@@ -9,7 +9,8 @@ the measurement?**
 
 > **Status: pre-alpha.** The core — the object everything else is written
 > against, its guarantees, and the significance machinery — is implemented and
-> tested, and so is the first reconstruction method. See
+> tested, and so are the first two reconstruction methods, which is enough for
+> the variance budget below to be a real measurement rather than a plan. See
 > [ARCHITECTURE.md](ARCHITECTURE.md) for the design, and the roadmap below for
 > the order of work.
 
@@ -131,16 +132,36 @@ And the exact ΛCDM row is not a rounding: `Om(z)` there is constant to machine
 precision, so after projecting out the constant there is no resolved direction
 left and the routine says so instead of dividing by rounding error.
 
-On top of that, `ensemble/` splits the answer by the law of total variance:
+### And the method itself is measured
+
+With more than one method implemented, `ensemble/` splits the answer by the law
+of total variance:
 
 ```
 Var_total(z) = E_method[ Var_within(z) ]  +  Var_method[ E_within(z) ]
                     statistical                 methodological
 ```
 
-`budget.method_fraction()` is the fraction of a published error bar that is a
-choice rather than a measurement — the part that will not shrink with more
-data.
+Five methods — two Gaussian processes, two Chebyshev series in different
+variables, one Padé — on the same mock chronometers:
+
+| z | statistical | method | method share | error bar inflates by |
+|---|---|---|---|---|
+| 0.20 | 2.85 | 1.96 | 32% | 1.21 |
+| 0.62 | 2.42 | 0.56 | 5% | 1.03 |
+| 1.05 | 2.72 | 0.41 | 2% | 1.01 |
+| 1.47 | 6.89 | 7.59 | **55%** | **1.49** |
+| 1.90 | 74.68 | 47.07 | 28% | 1.18 |
+
+At `z = 1` all five agree to well inside their own error bars. At `z = 1.5`
+more than half the total variance is which method you picked — and that half
+does not shrink when you take more data. Averaged over the range, method
+variance is 24% of the total and error bars widen by a median factor of 1.13.
+
+`budget.method_fraction()` is that column. No other tool produces it, which is
+why the literature has papers *about* method dependence instead of results
+marginalised *over* it. Run `examples/01_expansion_history.py` to reproduce
+the table.
 
 ---
 
@@ -152,14 +173,17 @@ data.
       *marginalised* rather than optimised, Matérn `nu` inferred rather than
       fixed, a spectral-quadrature sample-path basis that measures its own
       error, and a refusal to differentiate past what the fitted smoothness
-      supports. 82 tests.
-- [ ] **`reconstructors/cosmography.py`.** Taylor, Padé, Chebyshev,
-      `y`-redshift, log-polynomial, each carrying its radius of convergence.
+      supports.
+- [x] **`reconstructors/cosmography.py`.** Chebyshev and monomial series in
+      `z`, `y = z/(1+z)` or `ln(1+z)`, with Padé re-expansion; the order
+      marginalised rather than chosen, derivatives to any order through Faà di
+      Bruno, and a refusal to fit a series outside its radius of convergence.
 - [ ] **`data/`.** Cosmic chronometers, DESI DR2 BAO, Pantheon+ / Union3 /
       DES-SN5YR, growth — with the covariances their papers published.
 - [ ] **`consistency/`.** `Om`, `Om3`, `Ok`, distance duality, litmus,
       growth–geometry, isotropy.
-- [ ] **`ensemble/method.py`.** `MethodEnsemble` and significance deflation.
+- [ ] **`ensemble/method.py`.** `MethodEnsemble`, wrapping the budget above,
+      and significance deflation.
 - [ ] **`inverse/`.** `w(z)`, `V(phi)`, designer `f(R)`/`f(T)`/`f(Q)`,
       `mu(z) = G_eff/G`.
 - [ ] **`validation/`.** Injection–recovery and coverage, as CI tests.
@@ -184,6 +208,8 @@ path itself:
 ```bash
 python -m pytest
 ```
+
+122 tests, all of which run in under a minute.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

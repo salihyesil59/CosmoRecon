@@ -17,6 +17,7 @@ from CosmoRecon.core.constants import (
 
 from CosmoRecon.core.errors import (
     AlignmentError,
+    ConvergenceError,
     CosmoReconError,
     DataError,
     DerivativeUnavailableError,
@@ -74,6 +75,7 @@ __all__ = [
     # errors
     "CosmoReconError",
     "AlignmentError",
+    "ConvergenceError",
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",

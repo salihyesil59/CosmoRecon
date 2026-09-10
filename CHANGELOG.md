@@ -205,6 +205,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - On the real chronometers both come back consistent with a cosmological
     constant, under every method and under the mixture.
 
+- **Joint reconstruction of several correlated observables.** DESI DR2
+  measures `D_M/r_d` and `D_H/r_d` together, correlated at `r = -0.35` to
+  `-0.49` within each tracer, and the curvature and distance-duality tests are
+  not defined unless that correlation survives into the reconstruction.
+  `Reconstructor.supports_joint` declares which methods can; `Cosmography`
+  can, the Gaussian process not yet.
+
+  - **The priors stay independent, and that is the whole design.** In FLRW,
+    `d/dz(D_M) = D_H sqrt(1 + Ok (H0 D_M/c)^2)` — which *is* the
+    Clarkson–Bassett–Lu test. A joint prior linking the two functions, however
+    physically motivated, would make that null test vacuous: it would be
+    testing an assumption it had already made. So each observable gets its own
+    variable map, column normalisation, order grid and prior width, built from
+    its own measurements and nothing else.
+  - Every correlation in the posterior therefore comes from the data, and that
+    is tested rather than asserted: forcing the data covariance diagonal drives
+    the posterior correlation between the two reconstructed functions to
+    `-0.005 .. +0.022`, zero to Monte-Carlo precision, while the released
+    covariance gives `-0.31 .. -0.54`.
+  - One draw of the stacked coefficient vector produces both curves, sharing an
+    `origin`, so they combine without an independence claim — which would have
+    been false.
+  - `MultiObservableDataset.select` now takes several names: one gives a
+    `Dataset`, several give a `MultiObservableDataset` keeping the block of
+    covariance that couples them. Its refusal message names both routes.
+  - `Cosmography.best_cell` reports the highest-evidence order and prior width
+    per observable, replacing a reach into private state.
+
 ### Changed
 
 - **The default Matérn grid now starts at `nu = 3/2`** rather than `nu = 1`,
@@ -224,8 +252,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (177 tests) covering the core contract, the kernels, the GP,
-  cosmography, the data layer, the ensemble and the Om diagnostics: sample paths checked against the exact GP posterior to the
+- Test suite (190 tests) covering the core contract, the kernels, the GP,
+  cosmography, joint fits, the data layer, the ensemble and the Om
+  diagnostics: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

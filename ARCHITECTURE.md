@@ -239,6 +239,45 @@ density is a one-dimensional integral, and quadrature on it converges
 geometrically: 256–2048 nodes reach a part in 10⁴, and the achieved error is
 measured at fit time and refused if it misses.
 
+### Joint fits: several correlated observables at once
+
+A BAO release is not one function of redshift. DESI DR2 measures `D_M/r_d` and
+`D_H/r_d` together at each tracer redshift, correlated at `r = −0.35` to
+`−0.49` — measured, not remembered; the covariance is exactly six 2×2 blocks
+with nothing across redshifts. The curvature test and distance duality are
+built from *both*, so they are not defined unless that correlation survives
+into the reconstruction. Hence `Reconstructor.supports_joint`, and a
+`MultiObservableDataset` that refuses to be fitted as one curve.
+
+**The design decision is about what the joint prior must not do.** In FLRW the
+two functions are related by
+
+```
+d/dz (D_M) = D_H · sqrt(1 + Ω_k (H₀ D_M / c)²)
+```
+
+which *is* the Clarkson–Bassett–Lu curvature test. A joint prior that linked
+them — however physically motivated it looked — would make that null test
+vacuous: it would be testing an assumption it had already made. This is easy to
+get wrong in a way that leaves no trace in the output.
+
+So: **independent priors, joint likelihood.** Each observable gets its own
+expansion variable map, its own column normalisation, its own order grid and
+its own prior width, built from its own measurements and nothing else. The fit
+stacks them into one design matrix against the full covariance, and one draw of
+the stacked coefficient vector produces both curves — sharing an `origin`, so
+everything downstream carries their correlation exactly.
+
+Every correlation in the posterior therefore arrives from the data. That is
+tested rather than asserted: forcing the data covariance diagonal drives the
+posterior correlation between the two reconstructed functions to `−0.005` to
+`+0.022`, zero to Monte-Carlo precision, while the real covariance gives
+`−0.31` to `−0.54`.
+
+`Cosmography` supports joint fits; the Gaussian process does not yet, because
+its hyperparameter grid would become a product over two functions' kernels and
+needs a different sampling strategy.
+
 ---
 
 ## 6. `consistency/` — the null tests

@@ -299,10 +299,12 @@ bundled; they are reachable through the optional CosmoFit bridge.
       by refitting ΛCDM to the survey's own published parameters.
 - [x] **`consistency/om.py`.** `Om` and `Om3`, validated against the figure in
       the paper that defined them.
+- [x] **Joint fits.** `D_M/r_d` and `D_H/r_d` reconstructed together with the
+      correlation between them kept, from independent priors — which is what
+      keeps the curvature test from testing its own assumption. `Cosmography`
+      supports it; the GP does not yet.
 - [ ] **`consistency/`, the rest.** `Ok`, distance duality, litmus,
-      growth–geometry, isotropy. `Ok` and distance duality need `D_M/r_d` and
-      `D_H/r_d` reconstructed *jointly*, with the correlation between them —
-      which the reconstructors do not yet do.
+      growth–geometry, isotropy.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -332,7 +334,7 @@ path itself:
 python -m pytest
 ```
 
-177 tests, all of which run in about a minute and a half.
+190 tests, all of which run in about a minute and a half.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

@@ -16,8 +16,9 @@ Three things come out of it:
 2. Reconstructions of ``H(z)`` and ``D_M/r_d``, and the variance budget across
    five methods: how much of the error bar is a measurement and how much is a
    choice. Nothing else reports the second number.
-3. The ``Om(z)`` null test on the real expansion history, with an effective
-   number of degrees of freedom rather than a grid size.
+3. Two null tests of the cosmological constant on the real expansion history,
+   under every method and under the mixture -- and the difference between a
+   diagnostic that needs a calibration and one that does not.
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ from CosmoRecon import (                                          # noqa: E402
     ExtrapolationWarning,
     GaussianProcess,
     MethodEnsemble,
+    Om,
+    Om3,
 )
 from CosmoRecon.data import chronometers, desi_dr2_bao            # noqa: E402
 
@@ -133,56 +136,57 @@ show(bao_fit.budget(), bao_grid, (0, 8, 16, 24))
 
 
 # ============================================================
-# 4. The Om(z) null test on the real expansion history
+# 4. Null tests of the cosmological constant
 # ============================================================
 
-rule("4. Om(z) null test on the chronometers")
+rule("4. Null tests on the chronometers")
 
-# Om(z) = [E(z)^2 - 1] / [(1+z)^3 - 1] is constant at Omega_m in flat LCDM,
-# whatever H0 is. Written as arithmetic on the reconstruction, so that the H0
-# uncertainty cancels draw by draw instead of adding.
+# Om(z) = [E(z)^2 - 1] / [(1+z)^3 - 1] is Omega_m in flat LCDM, at every
+# redshift. Om3(z1, z2, z3) = Om(z2;z1) / Om(z3;z1) is exactly 1 -- and, being
+# a ratio, needs neither H0 nor Omega_m.
 #
-# The same expression goes to every member and to the mixture, so the only
-# thing differing between the numbers below is which posterior it was
-# evaluated on -- which is what makes the spread attributable to the method.
+# That is not a cosmetic difference here. Om is anchored at z = 0 and the
+# lowest chronometer sits at z = 0.07, so every Om(z) from this dataset is
+# standing on an extrapolation; the library flags it, and it is silenced below
+# only because the flag is the subject of example 01. Om3 is anchored at two
+# redshifts inside the data and touches nothing that was not measured.
 #
-# H(0) is a short extrapolation: the lowest chronometer sits at z = 0.07, and
-# the library flags it. Silenced here because that flag is the subject of
-# example 01, not of this one.
+# Both statistics go to every member and to the mixture, so the only thing
+# differing between the numbers is which posterior they were evaluated on.
 
+for test, note in [
+    (Om(), "anchored at z = 0, so it needs H(0) -- an extrapolation here"),
+    (Om3(z1=0.15, z2=0.35), "anchored inside the data; no H0, no Omega_m"),
+]:
 
-def om_diagnostic(H):
+    print()
+    print(f"   {test.name}: {note}")
 
-    return ((H / H.at(0.0)) ** 2 - 1.0) / ((1.0 + cc_grid) ** 3 - 1.0)
+    with warnings.catch_warnings():
 
+        warnings.simplefilter("ignore", ExtrapolationWarning)
 
-with warnings.catch_warnings():
+        comparison = cc_fit.significance(
+            test.statistic,
+            test.null_value,
+            marginalise_constant=test.null_is_free_constant,
+            name=test.name,
+        )
 
-    warnings.simplefilter("ignore", ExtrapolationWarning)
+        curve = test.statistic(cc_fit.marginalised)
 
-    comparison = cc_fit.significance(
-        om_diagnostic,
-        null_value=0.30,
-        marginalise_constant=True,
-        name="Om(z) from 32 cosmic chronometers, tested against 'some constant'",
-    )
+    print(f"     runs {curve.mean().min():.3f} to {curve.mean().max():.3f},"
+          f" typical width +/- {np.median(curve.std()):.3f}")
 
-    curve = om_diagnostic(cc_fit.marginalised)
+    body = comparison.summary().splitlines()[1:]
 
-    lo, hi = curve.interval(0.68)
+    for line in body:
+        print("     " + line.strip())
 
-print(f"   Om(z) runs {curve.mean().min():.3f} to {curve.mean().max():.3f}"
-      f" over z = {cc_grid[0]:.2f} to {cc_grid[-1]:.2f},"
-      f" width +/- {np.median(0.5 * (hi - lo)):.3f}")
 print()
-print("   " + comparison.summary().replace("\n", "\n   "))
-print()
-
-verdict = comparison.marginalised[2] >= 0.05
-
-print("   " + ("consistent with a cosmological constant"
-               if verdict else "DEVIATION from a cosmological constant"))
-print("   32 differential ages cannot see a DESI-scale deviation, and a tool")
-print("   that said otherwise would be measuring its own assumptions.")
+print("   Both are consistent with a cosmological constant, under every method")
+print("   and under the mixture. Thirty-two differential ages cannot see a")
+print("   DESI-scale deviation, and a tool that said otherwise would be")
+print("   measuring its own assumptions.")
 
 print()

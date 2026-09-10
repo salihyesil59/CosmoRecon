@@ -253,7 +253,8 @@ that is entirely correlation.
 
 | module | test | null |
 |---|---|---|
-| `om.py` | `Om(z)`, `Om3(z)` (Sahni–Shafieloo–Starobinsky) | constant |
+| `om.py` ✅ | `Om(z)` | constant (`= Omega_m`) |
+| `om.py` ✅ | `Om3(z1,z2,z3)` — no `H0`, no `Omega_m`, no extrapolation | **exactly 1** |
 | `curvature.py` | `Ok(z)` (Clarkson–Bassett–Lu) | constant, `= Omega_k` |
 | `duality.py` | Etherington `eta(z) = d_L / [(1+z)^2 d_A]`; cosmic opacity | `1` |
 | `litmus.py` | `L(z)` litmus test for `Lambda` | `0` |

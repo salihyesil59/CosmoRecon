@@ -206,6 +206,50 @@ makes the machinery worth pointing at data that can.
 
 ---
 
+## The first null tests
+
+`consistency/om.py` implements the Sahni–Shafieloo–Starobinsky diagnostics.
+Both are one line of arithmetic on a reconstruction, and both are exact
+statements rather than approximations:
+
+```
+Om(z)            = [E²(z) − 1] / [(1+z)³ − 1]           = Ω_m   in flat ΛCDM
+Om3(z₁, z₂, z₃)  = Om(z₂; z₁) / Om(z₃; z₁)             = 1     in flat ΛCDM
+```
+
+Fed an exact ΛCDM posterior, `Om3` comes back as **1.0000000 ± 8×10⁻¹⁶** —
+not on average, but in every draw, because the cancellation is algebraic and
+happens *inside* each realisation. A machinery that summarised before
+combining would get the mean right and the width wrong.
+
+**Om3 is the better test on real data, and for a reason worth knowing.** `Om`
+is anchored at `z = 0`, so it needs `H(0)`; the lowest cosmic chronometer sits
+at `z = 0.07`, so every `Om(z)` from that dataset is standing on an
+extrapolation. `Om3` is a ratio in which `H₀` and `Ω_m` both cancel — no
+Hubble constant, no matter density, no sound horizon, no absolute magnitude.
+It touches nothing that was not measured, and its null value is the exact
+number 1 rather than an unknown constant.
+
+The implementation is checked against Figure 1 of the paper that defined it
+(Shafieloo, Sahni & Starobinsky 2012): quintessence at `w = −0.9` drives Om3
+to 1.11 by a separation of 2, phantom at `w = −1.1` to 0.90, ΛCDM stays pinned
+at unity. Those are the published values, and they are a test in the suite.
+
+### And this is where carrying draws earns its keep
+
+`Om3` at different `z₃` all share `H(z₁)` and `H(z₂)`, and it is a ratio of two
+differences — strongly correlated along its length, and skewed. Propagating
+marginal error bars as though the three redshifts were independent, which is
+the only thing a curve-with-error-bars representation can do, misstates the
+width by a factor of **two in the middle of the range and seven at the ends**,
+in *both* directions. There is no fudge factor that repairs that.
+
+On the real chronometers, both diagnostics come back consistent with a
+cosmological constant under every method and under the mixture. That is the
+correct answer: 32 differential ages cannot see a DESI-scale deviation.
+
+---
+
 ## The data
 
 Four releases ship with the library, about 55 kB in total:
@@ -253,8 +297,12 @@ bundled; they are reachable through the optional CosmoFit bridge.
 - [x] **`data/`.** Cosmic chronometers, DESI DR2 BAO, Union3 and a growth
       compilation, with the covariances their papers published, each validated
       by refitting ΛCDM to the survey's own published parameters.
-- [ ] **`consistency/`.** `Om`, `Om3`, `Ok`, distance duality, litmus,
-      growth–geometry, isotropy.
+- [x] **`consistency/om.py`.** `Om` and `Om3`, validated against the figure in
+      the paper that defined them.
+- [ ] **`consistency/`, the rest.** `Ok`, distance duality, litmus,
+      growth–geometry, isotropy. `Ok` and distance duality need `D_M/r_d` and
+      `D_H/r_d` reconstructed *jointly*, with the correlation between them —
+      which the reconstructors do not yet do.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -284,7 +332,7 @@ path itself:
 python -m pytest
 ```
 
-164 tests, all of which run in about a minute and a half.
+177 tests, all of which run in about a minute and a half.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

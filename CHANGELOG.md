@@ -180,6 +180,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inside a single-method analysis can see that. The between-method scatter is
   the missing term, and pooling restores the calibration.
 
+- **`consistency.Om` and `consistency.Om3`** — the first null tests, from
+  Sahni, Shafieloo & Starobinsky (2008) and Shafieloo, Sahni & Starobinsky
+  (2012).
+
+  - Both are exact statements, and the implementation returns them as such:
+    fed an exact ΛCDM posterior, `Om(z)` reproduces the input `Omega_m`
+    posterior unchanged and `Om3` comes back as `1.0000000 ± 8e-16` — in every
+    draw, because the cancellation is algebraic and happens inside each
+    realisation rather than between summaries.
+  - **`Om3` needs no calibration at all.** `H0` and `Omega_m` both cancel in
+    the ratio, so unlike `Om` it needs no extrapolation to `z = 0` — which
+    every `Om(z)` built from cosmic chronometers is quietly standing on, the
+    lowest of them sitting at `z = 0.07`. Its null value is the exact number 1
+    rather than an unknown constant, which also costs it no degree of freedom.
+  - Validated against Figure 1 of the defining paper: quintessence at
+    `w = -0.9` drives Om3 to 1.11 by a separation of 2, phantom at `w = -1.1`
+    to 0.90, ΛCDM pinned at unity — the published values, as a test.
+  - Demonstrates why the draws are carried: `Om3` shares `H(z1)` and `H(z2)`
+    along its whole length and is a ratio of two differences, so propagating
+    marginal error bars as though the redshifts were independent misstates the
+    width by a factor of two in the middle and seven at the ends, in both
+    directions.
+  - On the real chronometers both come back consistent with a cosmological
+    constant, under every method and under the mixture.
+
 ### Changed
 
 - **The default Matérn grid now starts at `nu = 3/2`** rather than `nu = 1`,
@@ -199,8 +224,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (164 tests) covering the core contract, the kernels, the GP,
-  cosmography, the data layer and the ensemble: sample paths checked against the exact GP posterior to the
+- Test suite (177 tests) covering the core contract, the kernels, the GP,
+  cosmography, the data layer, the ensemble and the Om diagnostics: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

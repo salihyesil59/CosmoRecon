@@ -1,0 +1,225 @@
+[build-system]
+requires = [
+    "setuptools>=77",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+# ==========================================================
+# Project metadata
+# ==========================================================
+
+[project]
+name = "cosmorecon"
+version = "0.1.0.dev0"
+
+description = "Model-independent reconstruction and null tests of the cosmological framework."
+
+readme = "README.md"
+
+requires-python = ">=3.11"
+
+license = "MIT"
+
+license-files = ["LICENSE"]
+
+authors = [
+    { name = "Salih Yeşil" }
+]
+
+keywords = [
+    "cosmology",
+    "astronomy",
+    "model-independent",
+    "non-parametric",
+    "reconstruction",
+    "gaussian-process",
+    "cosmography",
+    "pade",
+    "chebyshev",
+    "flexknot",
+    "null-tests",
+    "distance-duality",
+    "etherington",
+    "om-diagnostic",
+    "curvature-test",
+    "dark-energy",
+    "equation-of-state",
+    "modified-gravity",
+    "growth-of-structure",
+    "desi",
+    "bao",
+    "supernova",
+    "cosmic-chronometers",
+    "systematics",
+    "uncertainty-quantification",
+]
+
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+# The core is three packages and nothing else. A reconstruction library
+# whose import pulls a Boltzmann code and a sampler cannot be a dependency
+# of anything, and this one is meant to be.
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "matplotlib>=3.9",
+]
+
+[project.urls]
+
+Homepage = "https://github.com/salihyesil59/CosmoRecon"
+Repository = "https://github.com/salihyesil59/CosmoRecon"
+Issues = "https://github.com/salihyesil59/CosmoRecon/issues"
+Changelog = "https://github.com/salihyesil59/CosmoRecon/blob/main/CHANGELOG.md"
+Architecture = "https://github.com/salihyesil59/CosmoRecon/blob/main/ARCHITECTURE.md"
+
+# ==========================================================
+# Optional dependencies
+# ==========================================================
+#
+# Every entry here is a guarded import that raises
+# OptionalDependencyError naming the extra, and every guarded path has a
+# test asserting that it really does skip when the extra is absent -- so a
+# bare install is a tested configuration rather than a hope.
+
+[project.optional-dependencies]
+
+# Nested sampling: node-count inference in `nodal.py`, and the evidences
+# that an evidence-weighted ensemble needs.
+nested = [
+    "dynesty>=2.1",
+]
+
+# The alternative path for marginalising Gaussian-process hyperparameters.
+# The default path is a grid, which needs nothing.
+mcmc = [
+    "emcee>=3.1",
+]
+
+# Neural reconstruction (`reconstructors/ann.py`) only.
+ann = [
+    "torch>=2.2",
+]
+
+# The CosmoFit adapter in `bridges/`: its data loaders in, its fitted
+# cosmologies out. Nothing else in the library touches it.
+cosmofit = [
+    "cosmofit>=1.1",
+]
+
+# No formatter, deliberately. This codebase is hand-wrapped -- comments set
+# against the expressions they explain, blank lines inside long formulae --
+# and a formatter would rewrite all of it and every line of `git blame`
+# with it. `ruff` below is a linter only.
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "ipykernel",
+]
+
+docs = [
+    "sphinx>=8",
+    "furo",
+    "myst-parser>=4",
+]
+
+all = [
+    "cosmorecon[nested,mcmc,ann]",
+]
+
+# ==========================================================
+# Package discovery
+# ==========================================================
+#
+# src layout: the importable package is src/CosmoRecon, so users write
+# `from CosmoRecon import ...` regardless of the distribution name
+# ("cosmorecon") above -- matching CosmoFit.
+
+[tool.setuptools.packages.find]
+
+where = ["src"]
+
+[tool.setuptools.package-data]
+
+CosmoRecon = [
+    # PEP 561: tells a downstream type checker these annotations are meant
+    # to be trusted. Empty by definition; its presence is the content.
+    "py.typed",
+    "data/**/*.txt",
+    "data/**/*.dat",
+    "data/**/*.cov",
+    "data/**/*.csv",
+    "data/**/*.npz",
+]
+
+# ==========================================================
+# Tooling
+# ==========================================================
+
+[tool.pytest.ini_options]
+
+testpaths = ["tests"]
+
+# No install needed to run the suite: `src` for the package, `.` so the
+# tests can import their own shared helpers (`tests/toy.py`).
+pythonpath = ["src", "."]
+
+# Every skip in this suite is a guarded optional dependency, and the
+# `minimal` CI job asserts they really do skip. Reporting them by default
+# is what makes a local run say the same thing.
+addopts = "-ra"
+
+filterwarnings = [
+    # An extrapolation warning that nobody sees is worthless. In the test
+    # suite it is an error, so a reconstruction quietly evaluated outside
+    # its data fails the build.
+    "error::CosmoRecon.core.grid.ExtrapolationWarning",
+]
+
+[tool.ruff]
+
+# The linter only. There is no [tool.ruff.format] section; see the note on
+# the `dev` extra above.
+line-length = 100
+
+[tool.ruff.lint]
+
+select = [
+    "F",    # pyflakes: undefined names, unused imports and locals
+    "E4",   # import placement
+    "E7",   # statement-level mistakes
+    "E9",   # syntax and IO errors
+    "W",    # trailing whitespace, missing final newline
+    "B",    # bugbear: likely bugs rather than style
+]
+
+ignore = [
+    # Imports below the top of a module. Every one here is a guarded
+    # optional dependency, which is exactly what this rule cannot tell
+    # apart from carelessness.
+    "E402",
+]
+
+[tool.mypy]
+
+python_version = "3.11"
+packages = ["CosmoRecon"]
+mypy_path = "src"
+
+# The library's own annotations are the contract; third-party stubs are
+# not worth blocking on.
+ignore_missing_imports = true

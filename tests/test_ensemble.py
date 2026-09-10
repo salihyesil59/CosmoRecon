@@ -112,7 +112,7 @@ def test_the_pooled_draws_reproduce_the_variance_budget(lcdm_fit):
 
     budget = lcdm_fit.budget()
 
-    ratio = lcdm_fit.marginalised.var() / budget.total
+    ratio = lcdm_fit.marginalised["H"].var() / budget.total
 
     assert np.median(ratio) == pytest.approx(1.0, abs=0.02)
     assert np.all(np.abs(ratio - 1.0) < 0.10)
@@ -126,9 +126,9 @@ def test_the_pooled_mean_is_the_weighted_member_mean(lcdm_fit):
         weight * budget.means[name] for name, weight in budget.weights.items()
     )
 
-    gap = np.max(
-        np.abs(lcdm_fit.marginalised.mean() - weighted) / lcdm_fit.marginalised.std()
-    )
+    mixture = lcdm_fit.marginalised["H"]
+
+    gap = np.max(np.abs(mixture.mean() - weighted) / mixture.std())
 
     assert gap < 0.1
 
@@ -140,7 +140,7 @@ def test_the_marginalised_posterior_is_a_full_reconstruction(lcdm_fit):
     mixture has every guarantee a null test built on one method has.
     """
 
-    mixture = lcdm_fit.marginalised
+    mixture = lcdm_fit.marginalised["H"]
 
     assert mixture.resamplable
 
@@ -166,10 +166,12 @@ def test_the_mixture_is_only_as_differentiable_as_its_roughest_member(lcdm_fit):
     parameter that four fifths of the posterior does not have.
     """
 
-    assert lcdm_fit.marginalised.d(1).mean().shape == (GRID.size,)
+    mixture = lcdm_fit.marginalised["H"]
+
+    assert mixture.d(1).mean().shape == (GRID.size,)
 
     with pytest.raises(DerivativeUnavailableError, match="Member 'GP"):
-        _ = lcdm_fit.marginalised.d(2).draws
+        _ = mixture.d(2).draws
 
 
 # ============================================================
@@ -198,7 +200,7 @@ def test_the_same_data_support_wildly_different_significances(cpl_fit):
     reference = lcdm_H(GRID, H0=70.0, Om=0.3)
 
     comparison = cpl_fit.significance(
-        lambda H: H - reference, 0.0, name="H(z) - LCDM"
+        lambda s: s["H"] - reference, 0.0, name="H(z) - LCDM"
     )
 
     sigmas = [value[3] for value in comparison.per_method.values()]
@@ -219,7 +221,7 @@ def test_every_member_and_the_mixture_are_reported(cpl_fit):
 
     reference = lcdm_H(GRID, H0=70.0, Om=0.3)
 
-    comparison = cpl_fit.significance(lambda H: H - reference, 0.0)
+    comparison = cpl_fit.significance(lambda s: s["H"] - reference, 0.0)
 
     assert set(comparison.per_method) == set(cpl_fit.members)
 
@@ -272,13 +274,13 @@ def test_method_marginalisation_repairs_a_miscalibrated_member():
                 mock, grid=z_test, n_draws=1200, seed=seed
             )
 
-            lo, hi = fit.marginalised.interval(0.68)
+            lo, hi = fit.marginalised["H"].interval(0.68)
 
             covered["-- method-marginalised"] += int(
                 ((truth >= lo) & (truth <= hi)).sum()
             )
 
-            for name, curve in fit.members.items():
+            for name, curve in fit.curves("H").items():
 
                 lo, hi = curve.interval(0.68)
 
@@ -419,9 +421,11 @@ def test_the_same_seed_gives_the_same_ensemble():
 
     first, second = run(), run()
 
-    assert np.array_equal(first.marginalised.draws, second.marginalised.draws)
+    assert np.array_equal(
+        first.marginalised["H"].draws, second.marginalised["H"].draws
+    )
 
     for name in first.members:
         assert np.array_equal(
-            first.members[name].draws, second.members[name].draws
+            first.curves("H")[name].draws, second.curves("H")[name].draws
         )

@@ -248,6 +248,42 @@ On the real chronometers, both diagnostics come back consistent with a
 cosmological constant under every method and under the mixture. That is the
 correct answer: 32 differential ages cannot see a DESI-scale deviation.
 
+### The curvature test, where this stops being methodological
+
+`Ok(z) = [H²(z) D'²(z) − c²] / [H₀² D²(z)]` is `Ω_k` in **any** FLRW universe,
+whatever the dark energy does (Clarkson, Bassett & Lu 2008). So a departure
+from constancy is not evidence about dark energy — it is evidence against
+homogeneity and isotropy. It is the strongest claim in the library.
+
+It needs `D_M/r_d` and `D_H/r_d` together, one of them differentiated, so it is
+the first real consumer of the joint fit. Written in BAO observables the whole
+calibration collapses into one constant, which means **two of the three
+questions need no calibration at all**: whether the universe is FLRW (is the
+statistic constant?) and whether it is flat (is it zero?). Only a specific
+non-zero `Ω_k` needs `c / H₀ r_d`, and the class asks for it rather than
+assuming one.
+
+Run it on DESI DR2 with four nearly identical polynomial reconstructions of the
+same twelve numbers:
+
+| method | `Ok(z)` significance |
+|---|---|
+| Chebyshev in `ln(1+z)` | **∞** (p underflows) |
+| Chebyshev in `y` | 4.42 σ |
+| monomial in `y` | 2.09 σ |
+| Chebyshev in `y`, order 3 | 0.28 σ |
+| **method-marginalised** | **0.41 σ** |
+
+A decisive violation of the Copernican principle is available to whoever picks
+the right expansion variable, and nothing inside a single-method analysis could
+tell. The honest reading is the marginalised one: six transverse and six radial
+BAO measurements, one of which has to be *differentiated*, do not constrain
+`Ok(z)`. **This dataset cannot answer the question, and saying so is the
+result.**
+
+That is what the library is for. It is a test in the suite, and
+`examples/02_real_data.py` prints the table.
+
 ---
 
 ## The data
@@ -303,8 +339,10 @@ bundled; they are reachable through the optional CosmoFit bridge.
       correlation between them kept, from independent priors — which is what
       keeps the curvature test from testing its own assumption. `Cosmography`
       supports it; the GP does not yet.
-- [ ] **`consistency/`, the rest.** `Ok`, distance duality, litmus,
-      growth–geometry, isotropy.
+- [x] **`consistency/curvature.py`.** The Clarkson–Bassett–Lu test, which on
+      DESI DR2 alone reports honestly that the data cannot support it.
+- [ ] **`consistency/`, the rest.** Distance duality, litmus, growth–geometry,
+      isotropy.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -334,7 +372,7 @@ path itself:
 python -m pytest
 ```
 
-190 tests, all of which run in about a minute and a half.
+204 tests, all of which run in about two minutes.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

@@ -1,0 +1,39 @@
+# "Gold-2018" fsigma8(z) growth-rate compilation.
+#
+# Sagredo, Nesseris & Sapone (2018), Phys. Rev. D 98, 083543,
+# arXiv:1806.10822, "Internal Robustness of Growth Rate data" --
+# data as bundled with the public MontePython likelihood
+# https://github.com/snesseris/RSD-growth (Arjona, Garcia-Bellido &
+# Nesseris 2020, arXiv:2006.01762), byte-for-byte from
+# data/growth_SN/data_growth_2018_main.txt there. Each point's own
+# survey reference is in REFERENCES.md.
+#
+# HdAz is the fiducial-cosmology H(z)*D_A(z) product [km/s] each
+# survey assumed to convert its raw RSD measurement into fsigma8 --
+# used for the Alcock-Paczynski correction in
+# likelihoods/fsigma8.py (FSigma8Likelihood), exactly as the
+# reference MontePython likelihood applies it.
+#
+# z       fsigma8   sigma     HdAz[km/s]
+0.02      0.428     0.0465    5905.2
+0.02      0.398     0.065     5905.2
+0.02      0.314     0.048     5902.17
+0.10      0.370     0.130     27919.8
+0.15      0.490     0.145     40636.6
+0.17      0.510     0.060     45463.8
+0.18      0.360     0.090     47665.2
+0.38      0.440     0.060     90926.2
+0.25      0.3512    0.0583    63409.3
+0.37      0.4602    0.0378    88415.1
+0.32      0.384     0.095     78751.0
+0.59      0.488     0.060     132588.0
+0.44      0.413     0.080     102712.0
+0.60      0.390     0.063     132420.0
+0.73      0.437     0.072     155232.0
+0.60      0.550     0.120     134060.0
+0.86      0.400     0.110     179999.0
+1.40      0.482     0.116     263053.0
+0.978     0.379     0.176     200977.0
+1.230     0.385     0.099     242503.0
+1.526     0.342     0.070     289340.0
+1.944     0.364     0.106     352504.0

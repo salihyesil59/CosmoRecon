@@ -142,26 +142,62 @@ Var_total(z) = E_method[ Var_within(z) ]  +  Var_method[ E_within(z) ]
                     statistical                 methodological
 ```
 
-Five methods — two Gaussian processes, two Chebyshev series in different
-variables, one Padé — on the same mock chronometers:
+Five methods — two Gaussian processes with different kernels, two Chebyshev
+series in different expansion variables, one Padé — on the **real bundled
+data**:
 
-| z | statistical | method | method share | error bar inflates by |
-|---|---|---|---|---|
-| 0.20 | 2.85 | 1.96 | 32% | 1.21 |
-| 0.62 | 2.42 | 0.56 | 5% | 1.03 |
-| 1.05 | 2.72 | 0.41 | 2% | 1.01 |
-| 1.47 | 6.89 | 7.59 | **55%** | **1.49** |
-| 1.90 | 74.68 | 47.07 | 28% | 1.18 |
+| dataset | method share, mean | peak | error bars inflate by |
+|---|---|---|---|
+| 32 cosmic chronometers → `H(z)` | 11% | 27% at `z = 1.7` | 1.04 (median) |
+| DESI DR2 → `D_M/r_d` | 12% | 25% at `z = 1.5` | 1.06 (median) |
 
-At `z = 1` all five agree to well inside their own error bars. At `z = 1.5`
-more than half the total variance is which method you picked — and that half
-does not shrink when you take more data. Averaged over the range, method
-variance is 24% of the total and error bars widen by a median factor of 1.13.
+Roughly one part in eight of the quoted uncertainty is which method was
+picked — rising to a quarter where the data thin out — and that part does not
+shrink when more data arrive. `budget.method_fraction()` is that number. It is
+not large enough to overturn anything on its own; it is large enough that
+nobody should be quoting an interval without it, and at present nobody can.
 
-`budget.method_fraction()` is that column. No other tool produces it, which is
-why the literature has papers *about* method dependence instead of results
-marginalised *over* it. Run `examples/01_expansion_history.py` to reproduce
-the table.
+Run `examples/02_real_data.py` to reproduce the table, and
+`examples/01_expansion_history.py` for the same machinery on mocks, where a
+known truth makes the recovery checkable.
+
+The same example also runs the `Om(z)` null test on the real chronometers, and
+the answer is worth stating plainly: **0.00 σ from constant**, with `Om(z)`
+determined to about `± 0.09`. Thirty-two differential ages cannot see a
+DESI-scale deviation from a cosmological constant, and a tool that said
+otherwise would be measuring its own assumptions. Getting that answer is what
+makes the machinery worth pointing at data that can.
+
+---
+
+## The data
+
+Four releases ship with the library, about 55 kB in total:
+
+| | | |
+|---|---|---|
+| `chronometers()` | 32 differential-age `H(z)` points | Favale+ 2023, with the Moresco+ 2020 systematic correlation matrix |
+| `desi_dr2_bao()` | 13 BAO measurements at 7 redshifts | DESI DR2, arXiv:2503.14738 |
+| `union3()` | 22 binned SN distance moduli | Union3, arXiv:2311.12098 |
+| `growth()` | 22 `f sigma_8` measurements | Gold-2018, arXiv:1806.10822 |
+
+Each is tested by refitting flat ΛCDM and requiring the survey's **own
+published number** back: DESI DR2 gives `Omega_m = 0.297` and
+`r_d h = 101.5 Mpc` against the published `0.2975 ± 0.0086` and
+`101.54 ± 0.73`; Union3 gives `Omega_m = 0.356` against `0.356 ± 0.026`.
+A column read in the wrong order or a correlation matrix used as a covariance
+produces no error and a perfectly reasonable-looking curve — so the loaders
+are checked against the thing that would move if they were wrong.
+
+Two more things the data layer refuses. A BAO release is `D_M/r_d` **and**
+`D_H/r_d`, correlated, at shared redshifts — not one function of redshift — so
+it cannot be handed to a reconstructor whole; `.select("DM_over_rs")` gives
+the part that can be. And two compilations built from overlapping objects
+(Union3 and Pantheon+) cannot be combined, because doing so counts the same
+supernovae twice and narrows the interval without adding information.
+
+Pantheon+ (33 MB of covariance) and DES-SN5YR (6 MB) are deliberately not
+bundled; they are reachable through the optional CosmoFit bridge.
 
 ---
 
@@ -178,8 +214,9 @@ the table.
       `z`, `y = z/(1+z)` or `ln(1+z)`, with Padé re-expansion; the order
       marginalised rather than chosen, derivatives to any order through Faà di
       Bruno, and a refusal to fit a series outside its radius of convergence.
-- [ ] **`data/`.** Cosmic chronometers, DESI DR2 BAO, Pantheon+ / Union3 /
-      DES-SN5YR, growth — with the covariances their papers published.
+- [x] **`data/`.** Cosmic chronometers, DESI DR2 BAO, Union3 and a growth
+      compilation, with the covariances their papers published, each validated
+      by refitting ΛCDM to the survey's own published parameters.
 - [ ] **`consistency/`.** `Om`, `Om3`, `Ok`, distance duality, litmus,
       growth–geometry, isotropy.
 - [ ] **`ensemble/method.py`.** `MethodEnsemble`, wrapping the budget above,
@@ -209,7 +246,7 @@ path itself:
 python -m pytest
 ```
 
-122 tests, all of which run in under a minute.
+144 tests, all of which run in about a minute.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

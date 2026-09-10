@@ -384,7 +384,7 @@ src/CosmoRecon/
         method.py          MethodEnsemble
         budget.py          VarianceBudget, law of total variance
     data/
-        dataset.py  loader.py  covariance.py   + bundled CC / BAO / SN / fs8
+        dataset.py  loader.py   + bundled CC / DESI DR2 / Union3 / growth
     bridges/
         cosmofit.py        optional adapter, guarded import
     validation/

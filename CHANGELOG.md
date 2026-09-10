@@ -114,15 +114,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     through conditioning. Tested: forced flat, the two posteriors coincide to
     the Monte-Carlo floor.
 
-- **The variance budget is now a measurement.** With two independent methods
-  implemented, `ensemble.total_variance` runs on real fits. Five members — two
-  Gaussian processes, two Chebyshev series in different variables, one Padé —
-  on mock chronometers: method variance is 24% of the total on average and 55%
-  at `z = 1.5`, inflating error bars by a median factor of 1.13 and by 1.49 at
-  the worst redshift. That share does not shrink with more data.
+- **`CosmoRecon.data`** — four real releases, about 55 kB: 32 cosmic
+  chronometers (Favale+ 2023 with the Moresco+ 2020 systematic correlation
+  matrix), DESI DR2 BAO, Union3, and the Gold-2018 `f sigma_8` compilation.
 
-- Test suite (122 tests) covering the core contract, the kernels, the GP and
-  cosmography: sample paths checked against the exact GP posterior to the
+  - **Every loader is validated against the survey's own published fit**, not
+    against itself. Refitting flat ΛCDM gives `Omega_m = 0.297` and
+    `r_d h = 101.5 Mpc` from DESI DR2 (published: `0.2975 ± 0.0086`,
+    `101.54 ± 0.73`) and `Omega_m = 0.356` from Union3 (published:
+    `0.356 ± 0.026`). A column read in the wrong order or a correlation matrix
+    used as a covariance raises no error and produces a reasonable-looking
+    curve, so the test has to be the thing that would move.
+  - **A BAO release is not one function of redshift.** `D_M/r_d` and
+    `D_H/r_d` are measured together and correlated, so
+    `MultiObservableDataset` refuses to be fitted whole and `.select()` gives
+    one observable with its own covariance block — stating, in the result's
+    note, the cross-covariance that choice gives up.
+  - **Overlapping compilations cannot be combined.** Union3 and Pantheon+ are
+    built from the same supernovae; using both counts them twice and narrows
+    the interval without adding information. `check_combination` refuses.
+  - Covariances are used as published — the chronometer correlation matrix in
+    full, the growth compilation's two internally correlated blocks laid over
+    the diagonal exactly as the reference likelihood does. Nothing is invented
+    and nothing is discarded.
+  - Pantheon+ (33 MB) and DES-SN5YR (6 MB) are deliberately not bundled.
+
+- **The variance budget is now a measurement on real data.** Five members —
+  two Gaussian processes, two Chebyshev series in different variables, one
+  Padé. On 32 cosmic chronometers, method variance is 11% of the total on
+  average and 27% at `z = 1.7`; on DESI DR2 `D_M/r_d`, 12% and 25% at
+  `z = 1.5`. Error bars inflate by a median factor of 1.04 and 1.06. That
+  share does not shrink with more data.
+
+- **First real null test.** `Om(z)` from the 32 chronometers is `0.00 σ` from
+  constant, determined to about `± 0.09`. Chronometers alone cannot see a
+  DESI-scale deviation from a cosmological constant, which is the correct
+  answer and the one a tool measuring its own assumptions would not give.
+
+- Test suite (144 tests) covering the core contract, the kernels, the GP,
+  cosmography and the data layer: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

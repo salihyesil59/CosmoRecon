@@ -31,7 +31,12 @@ from CosmoRecon.core.provenance import Origin, Provenance, new_origin
 from CosmoRecon.core.reconstruction import Reconstruction
 
 
-__all__ = ["Reconstructor", "ReconstructionSet", "unpack_dataset"]
+__all__ = [
+    "Reconstructor",
+    "ReconstructionSet",
+    "unpack_dataset",
+    "unpack_joint",
+]
 
 
 #: Draws taken by default. Large enough that a 95% interval is stable and a
@@ -194,6 +199,17 @@ class Reconstructor(ABC):
     #: that only produces draws on a grid would set this ``False`` and lose
     #: access to ``at()`` and analytic derivatives.
     resamplable: bool = True
+
+    #: Whether this method can reconstruct **several correlated observables at
+    #: once**, sharing one realisation index.
+    #:
+    #: A BAO release measures ``D_M/r_d`` and ``D_H/r_d`` together, correlated
+    #: at ``r`` of about -0.4 within each tracer, and the null tests that need
+    #: both -- the curvature test, distance duality -- are only defined if that
+    #: correlation is carried. A method that fits one scalar function at a time
+    #: cannot do it, and says so rather than fitting the two separately and
+    #: leaving the user to combine them as though they were independent.
+    supports_joint: bool = False
 
     # ---------------------------------------------------------
 
@@ -489,3 +505,63 @@ def _require(data, names: tuple[str, ...], what: str) -> Array:
         f"Cannot find {what} on {type(data).__name__}: looked for "
         f"{' , '.join(names)}."
     )
+
+
+def unpack_joint(data) -> tuple[Array, Array, Array, np.ndarray]:
+    """
+    ``(z, values, covariance, quantity)`` for a dataset measuring one or
+    several observables together.
+
+    The single-observable case comes back as one quantity repeated, so a
+    reconstructor written against this signature handles both without
+    branching -- a joint fit of one function is just a fit.
+
+    Row order is **preserved**, unlike :func:`unpack_dataset`, because the
+    covariance's rows are in the release's own order and reordering one
+    without the other is the kind of mistake that produces a plausible curve
+    and a wrong interval.
+    """
+
+    quantity = getattr(data, "quantity", None)
+
+    if quantity is None:
+
+        z, y, cov, label = unpack_dataset(data)
+
+        return z, y, cov, np.array([label] * z.size)
+
+    z = np.atleast_1d(np.asarray(data.z, dtype=float)).ravel()
+
+    values = np.atleast_1d(np.asarray(data.values, dtype=float)).ravel()
+
+    cov = np.atleast_2d(np.asarray(data.cov, dtype=float))
+
+    quantity = np.asarray(quantity)
+
+    if not (z.size == values.size == quantity.size):
+
+        raise DataError(
+            f"{getattr(data, 'name', 'dataset')}: {z.size} redshifts, "
+            f"{values.size} values and {quantity.size} labels do not pair up."
+        )
+
+    if cov.shape != (z.size, z.size):
+
+        raise DataError(
+            f"{getattr(data, 'name', 'dataset')}: covariance has shape "
+            f"{cov.shape}, expected ({z.size}, {z.size})."
+        )
+
+    for label in np.unique(quantity):
+
+        count = int(np.sum(quantity == label))
+
+        if count < 3:
+
+            raise DataError(
+                f"{label!r} has {count} measurement(s), which is not enough "
+                "to reconstruct a function of redshift. Select the "
+                "observables that are, or fit a model instead."
+            )
+
+    return z, values, cov, quantity

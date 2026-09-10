@@ -15,10 +15,15 @@ noticed in review.
 measurement of one function of redshift: it is ``D_M/r_d`` and ``D_H/r_d``
 together, correlated, at shared redshifts. Handing all thirteen numbers to a
 reconstructor as though they traced one curve would fit a function through two
-different quantities. :class:`MultiObservableDataset` cannot be fitted
-directly, and says so; :meth:`MultiObservableDataset.select` pulls out one
-observable with its own covariance block, which is the thing that can be
-reconstructed.
+different quantities, so :class:`MultiObservableDataset` refuses that and says
+what to do instead.
+
+There are two right answers, and which one is right depends on the question.
+``select("DM_over_rs")`` gives one observable with its own covariance block --
+one function, fittable by any method, with its correlation to the others
+dropped. ``select("DM_over_rs", "DH_over_rs")`` keeps that correlation and
+gives something a **joint** reconstruction can consume, which is what the
+curvature and distance-duality tests need in order to be defined at all.
 """
 
 from __future__ import annotations
@@ -180,10 +185,13 @@ class MultiObservableDataset:
     and treated separately -- and the reason this class exists rather than a
     pair of :class:`Dataset` objects.
 
-    It deliberately cannot be handed to a reconstructor. The current
-    reconstruction methods fit one scalar function of redshift, and thirteen
-    numbers that are alternately a transverse distance and a Hubble distance
-    do not trace one. :meth:`select` gives back the part that does.
+    It deliberately cannot be handed to a reconstructor that fits one scalar
+    function: thirteen numbers that are alternately a transverse distance and
+    a Hubble distance do not trace one curve. :meth:`select` narrows it to one
+    observable, or to several with the covariance between them kept -- and a
+    reconstructor declaring ``supports_joint`` takes the latter and fits both
+    functions from one realisation, so their correlation survives into
+    everything built from them.
     """
 
     z: Array
@@ -243,14 +251,20 @@ class MultiObservableDataset:
             f"{self.name or 'This dataset'} measures "
             f"{sorted(self.quantities())} together, with the correlations "
             "between them, so it is not one function of redshift and cannot "
-            "be reconstructed as one. Pick the observable you want with "
-            f".select('{self.quantities()[0]}'), which carries that "
-            "quantity's own covariance block.\n"
+            "be reconstructed as one.\n"
             "\n"
-            "The cross-covariance between observables is dropped by that "
-            "choice. It matters for a joint statement -- a curvature or "
-            "distance-duality test built from both -- and reconstructing them "
-            "jointly is not yet implemented."
+            "There are two right answers. Narrow it to one observable -- "
+            f".select('{self.quantities()[0]}') -- which carries that "
+            "quantity's own covariance block and drops its correlation with "
+            "the others; any method can fit that. Or keep the correlation -- "
+            f".select({', '.join(repr(q) for q in self.quantities()[:2])}) -- "
+            "and hand the result to a reconstructor that declares "
+            "supports_joint, which fits both functions from one realisation. "
+            "Cosmography does; the Gaussian process does not yet.\n"
+            "\n"
+            "The second is what the curvature and distance-duality tests need: "
+            "they are built from both observables and are not defined unless "
+            "the correlation between them survives."
         )
 
     def quantities(self) -> tuple[str, ...]:
@@ -263,31 +277,72 @@ class MultiObservableDataset:
 
         return tuple(seen)
 
-    def select(self, quantity: str) -> Dataset:
+    def select(self, *quantities: str):
         """
-        One observable, with its own covariance block.
+        Some of the observables, with the covariance between them.
 
-        The block is exact for that observable; what is lost is its
-        correlation with the *others*, which is unavoidable when
-        reconstructing a single function and is stated in the note attached to
-        the result.
+        One name gives a :class:`Dataset` -- a single function of redshift,
+        which is what a reconstructor fits. Several give another
+        :class:`MultiObservableDataset` carrying the block of the covariance
+        that couples them, for a **joint** reconstruction.
+
+        The distinction matters. Selecting one observable drops its
+        correlation with the others, which is unavoidable when reconstructing
+        a single curve and is stated in the note attached to the result.
+        Selecting two keeps it -- and the null tests that need both, the
+        curvature test and distance duality, are only defined if it is kept.
         """
 
-        mask = np.asarray(self.quantity) == quantity
-
-        if not mask.any():
+        if not quantities:
 
             raise DataError(
-                f"{self.name or 'This dataset'} has no {quantity!r}; it "
+                f"Nothing selected. {self.name or 'This dataset'} measures "
+                f"{sorted(self.quantities())}."
+            )
+
+        missing = [q for q in quantities if q not in self.quantities()]
+
+        if missing:
+
+            raise DataError(
+                f"{self.name or 'This dataset'} has no {missing[0]!r}; it "
                 f"measures {sorted(self.quantities())}."
             )
 
-        index = np.flatnonzero(mask)
+        labels = np.asarray(self.quantity).astype(str)
+
+        index = np.flatnonzero(np.isin(labels, list(quantities)))
+
+        dropped = sorted(set(self.quantities()) - set(quantities))
+
+        if len(quantities) > 1:
+
+            note = (
+                f"{self.name} also measures {dropped}, correlated with these; "
+                "that cross-covariance is not carried here."
+                if dropped
+                else ""
+            )
+
+            return MultiObservableDataset(
+                z=np.asarray(self.z)[index],
+                values=np.asarray(self.values)[index],
+                cov=np.asarray(self.cov)[np.ix_(index, index)],
+                quantity=labels[index],
+                units=dict(self.units),
+                name=f"{self.name}[{'+'.join(quantities)}]",
+                reference=self.reference,
+                note=(note + " " + self.note).strip(),
+                excludes=self.excludes,
+            )
+
+        quantity = quantities[0]
 
         note = (
-            f"{self.name} also measures "
-            f"{sorted(set(self.quantities()) - {quantity})}, correlated with "
-            "this; that cross-covariance is not carried here."
+            f"{self.name} also measures {dropped}, correlated with this; that "
+            "cross-covariance is not carried here."
+            if dropped
+            else ""
         )
 
         return Dataset(

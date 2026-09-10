@@ -287,7 +287,7 @@ def test_marginalising_the_order_is_wider_than_pinning_it(data):
     reference = Cosmography()
     reference.fit(data, grid=GRID, n_draws=10, seed=3)
 
-    best_order = reference._cells[int(np.argmax(reference._log_weights))][0]
+    best_order = reference.best_cell["H"]["order"]
 
     pinned = Cosmography(order=best_order).fit(
         data, grid=GRID, n_draws=4000, seed=3
@@ -310,11 +310,7 @@ def test_evidence_is_finite_and_prefers_a_sensible_order(data):
 
     assert np.isfinite(fit.log_evidence)
 
-    weights = np.exp(fit._log_weights - fit._log_weights.max())
-
-    orders = np.array([cell[0] for cell in fit._cells])
-
-    favoured = orders[int(np.argmax(weights))]
+    favoured = fit.best_cell["H"]["order"]
 
     # LCDM's H(z) over this range is smooth and gently curved; a very high
     # order would mean the evidence is not doing its job.

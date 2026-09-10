@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -72,7 +73,7 @@ from CosmoRecon.core.grid import check_within_support
 from CosmoRecon.core.provenance import Origin, Provenance
 from CosmoRecon.core.reconstruction import Reconstruction
 
-from CosmoRecon.reconstructors.base import Reconstructor, unpack_dataset
+from CosmoRecon.reconstructors.base import Reconstructor, unpack_joint
 from CosmoRecon.reconstructors.series import (
     ExpansionVariable,
     compose_derivatives,
@@ -96,6 +97,52 @@ DEFAULT_ORDER_GRID = (1, 2, 3, 4, 5, 6)
 #: approximants with a pole in the observable range, which means the orders
 #: asked for are not supported by the data.
 _MIN_ACCEPTANCE = 0.2
+
+
+# ============================================================
+# One observable inside a fit
+# ============================================================
+
+@dataclass(frozen=True, slots=True)
+class _Block:
+    """
+    Everything about one observable's basis inside a (possibly joint) fit.
+
+    A joint fit is a stack of these. Each carries its own affine map, its own
+    column normalisation, its own order grid and its own prior width -- built
+    from its own measurements and from nothing else. That independence is the
+    design decision the module docstring is about: any correlation between two
+    observables in the result has to come from the data covariance, because
+    the prior puts none there.
+    """
+
+    #: What this observable is called: ``"DM_over_rs"``, ``"H"``.
+    label: str
+
+    #: Which rows of the stacked data belong to it.
+    rows: Array
+
+    #: The affine map from the expansion variable onto ``[-1, 1]`` over this
+    #: observable's own range.
+    slope: float
+    offset: float
+
+    #: Unit-RMS normalisation of this block's design columns.
+    column_scale: Array
+
+    #: Expansion orders this observable's own point count can support.
+    orders: tuple[int, ...]
+
+    #: Where this block sits in the stacked coefficient vector.
+    columns: slice
+
+    #: The redshifts this observable was measured over.
+    support: tuple[float, float]
+
+    unit: str
+
+    #: Prior widths for its coefficients, marginalised over.
+    scales: Array
 
 
 # ============================================================
@@ -351,6 +398,12 @@ class Cosmography(Reconstructor):
 
     provides_evidence = True
 
+    #: Two BAO observables measured together, with the correlation between
+    #: them, are two functions of redshift -- and this method fits them as
+    #: such. See the note at the top of the module on why their priors stay
+    #: independent.
+    supports_joint = True
+
     def __init__(
         self,
         variable: ExpansionVariable | str = "y",
@@ -398,7 +451,9 @@ class Cosmography(Reconstructor):
 
         self._log_evidence: float | None = None
 
-        self._cells: list[tuple[int, float]] | None = None
+        self._cells: list[tuple[tuple[int, float], ...]] | None = None
+
+        self._block_labels: list[str] | None = None
 
         self._log_weights: Array | None = None
 
@@ -431,7 +486,7 @@ class Cosmography(Reconstructor):
         return {
             "variable": type(self.variable).__name__,
             "family": self.family,
-            "order": self._order_grid(),
+            "order": self._requested_orders(),
             "pade": self.pade,
             "strict": self.strict,
             "n_scale": self.n_scale,
@@ -458,6 +513,28 @@ class Cosmography(Reconstructor):
         return self._log_evidence
 
     @property
+    def best_cell(self) -> dict[str, dict[str, float]]:
+        """
+        The single highest-evidence combination of order and prior width, per
+        observable.
+
+        What the standard recipe would have stopped at, and therefore what a
+        marginalised result should be compared against. Reported per observable
+        because a joint fit marginalises over each one's order separately.
+        """
+
+        if self._cells is None or self._block_labels is None:
+
+            raise RuntimeError("Nothing has been fitted yet.")
+
+        best = self._cells[int(np.argmax(self._log_weights))]
+
+        return {
+            label: {"order": int(order), "scale": float(scale)}
+            for label, (order, scale) in zip(self._block_labels, best, strict=True)
+        }
+
+    @property
     def acceptance(self) -> float:
         """
         Fraction of Pade draws with no pole inside the fitted range. ``1.0``
@@ -474,7 +551,8 @@ class Cosmography(Reconstructor):
     # Setup
     # ---------------------------------------------------------
 
-    def _order_grid(self) -> list[int]:
+    def _requested_orders(self) -> list[int]:
+        """The orders asked for, before any dataset has had a say."""
 
         if self.pade is not None:
             return [self.pade[0] + self.pade[1]]
@@ -486,6 +564,22 @@ class Cosmography(Reconstructor):
             return [int(self.order)]
 
         return sorted({int(o) for o in self.order})
+
+    def _order_grid(self, n_points: int) -> list[int]:
+        """
+        Orders this observable's own measurements can support.
+
+        Capped per observable rather than per dataset: in a joint fit of
+        ``D_M/r_d`` and ``D_H/r_d`` each function is constrained by its own six
+        points, and letting one borrow the other's count would be borrowing
+        information it does not have.
+        """
+
+        return [
+            order
+            for order in self._requested_orders()
+            if order + 1 <= n_points - 1
+        ]
 
     def _check_convergence(self, z: Array) -> None:
         """
@@ -523,6 +617,131 @@ class Cosmography(Reconstructor):
         warnings.warn(message, RuntimeWarning, stacklevel=3)
 
     # ---------------------------------------------------------
+
+    def _blocks(
+        self,
+        z: Array,
+        values: Array,
+        quantity: np.ndarray,
+        units: dict[str, str],
+    ) -> tuple[list[_Block], Array]:
+        """
+        One block per observable, and the stacked design matrix.
+
+        Each observable gets its own affine map onto ``[-1, 1]``, its own
+        column normalisation and its own order grid, built from its own
+        measurements. Nothing about one observable's basis depends on
+        another's -- which is the point, and is discussed at the top of this
+        module.
+
+        The stacked design has a row per measurement, in the order the release
+        gave them, and columns grouped by observable. Row order is preserved
+        because the covariance is in that order, and reordering one without
+        the other is a mistake that produces a plausible curve.
+        """
+
+        blocks: list[_Block] = []
+
+        column = 0
+
+        for label in dict.fromkeys(str(q) for q in quantity):
+
+            rows = np.flatnonzero(np.asarray(quantity).astype(str) == label)
+
+            orders = self._order_grid(rows.size)
+
+            if not orders:
+
+                raise DataError(
+                    f"{label!r} has {rows.size} measurements, which cannot "
+                    f"support any of the requested orders. A series with as "
+                    "many coefficients as there are data points is the prior "
+                    "wearing a polynomial."
+                )
+
+            degree = max(orders)
+
+            x = self.variable(z[rows])
+
+            x_lo, x_hi = float(x.min()), float(x.max())
+
+            if x_hi <= x_lo:
+
+                raise DataError(
+                    f"All {label!r} measurements are at the same redshift."
+                )
+
+            slope = 2.0 / (x_hi - x_lo)
+
+            offset = -(x_hi + x_lo) / (x_hi - x_lo)
+
+            full = design_matrix(slope * x + offset, degree, self.family)
+
+            column_scale = np.sqrt(np.mean(full**2, axis=1))
+
+            column_scale[column_scale <= 0.0] = 1.0
+
+            blocks.append(
+                _Block(
+                    label=label,
+                    rows=rows,
+                    slope=slope,
+                    offset=offset,
+                    column_scale=column_scale,
+                    orders=tuple(orders),
+                    columns=slice(column, column + degree + 1),
+                    support=(float(z[rows].min()), float(z[rows].max())),
+                    unit=units.get(label, ""),
+                    scales=self._scale_grid(values[rows], label),
+                )
+            )
+
+            column += degree + 1
+
+        design = np.zeros((z.size, column))
+
+        for block in blocks:
+
+            x = self.variable(z[block.rows])
+
+            design[np.ix_(block.rows, range(block.columns.start, block.columns.stop))] = (
+                design_matrix(
+                    block.slope * x + block.offset,
+                    block.columns.stop - block.columns.start - 1,
+                    self.family,
+                )
+                / block.column_scale[:, None]
+            ).T
+
+        return blocks, design
+
+    def _scale_grid(self, values: Array, label: str) -> Array:
+        """
+        Prior widths for one observable's coefficients, log-uniform.
+
+        Per observable, because two observables in one fit need not be
+        anywhere near the same size -- ``H(z)`` in km/s/Mpc and ``f sigma_8``
+        differ by two orders of magnitude, and one prior width covering both
+        would be far too loose for one and far too tight for the other.
+
+        The columns are unit-RMS, so a coefficient is the contribution of its
+        basis function to the observable in the observable's own units. The
+        range therefore runs from a small fraction of the data's level to well
+        above it, and the level has to include the mean: a quantity of 100 with
+        a scatter of 1 still needs a constant term near 100.
+        """
+
+        level = abs(float(np.mean(values))) + float(np.std(values, ddof=1))
+
+        if level <= 0.0:
+
+            raise DataError(f"The {label!r} measurements have no scale to fit.")
+
+        lo, hi = self.scale_range or (0.05 * level, 20.0 * level)
+
+        return np.geomspace(lo, hi, self.n_scale)
+
+    # ---------------------------------------------------------
     # The fit
     # ---------------------------------------------------------
 
@@ -537,49 +756,16 @@ class Cosmography(Reconstructor):
         origin: Origin,
     ) -> Mapping[str, Reconstruction]:
 
-        z, y, cov, label = unpack_dataset(data)
+        z, values, cov, quantity = unpack_joint(data)
 
         self._check_convergence(z)
 
-        orders = [o for o in self._order_grid() if o + 1 <= z.size - 1]
+        units = dict(getattr(data, "units", {}))
 
-        if not orders:
+        if not units:
+            units = {str(q): str(getattr(data, "unit", "")) for q in quantity}
 
-            raise DataError(
-                f"{z.size} measurements cannot support any of the requested "
-                f"orders {self._order_grid()}. A series with as many "
-                "coefficients as there are data points is the prior wearing a "
-                "polynomial."
-            )
-
-        degree = max(orders)
-
-        # The affine map onto [-1, 1] over the range the data span in the
-        # expansion variable. Chebyshev is only orthogonal there, and the
-        # monomials are merely far better behaved.
-        x_data = self.variable(z)
-
-        x_lo, x_hi = float(x_data.min()), float(x_data.max())
-
-        if x_hi <= x_lo:
-
-            raise DataError("All measurements are at the same redshift.")
-
-        slope = 2.0 / (x_hi - x_lo)
-
-        offset = -(x_hi + x_lo) / (x_hi - x_lo)
-
-        u_data = slope * x_data + offset
-
-        full = design_matrix(u_data, degree, self.family)      # (degree+1, n)
-
-        # Unit RMS per column, so that one prior width means the same thing
-        # for the constant term and for the highest one.
-        column_scale = np.sqrt(np.mean(full**2, axis=1))
-
-        column_scale[column_scale <= 0.0] = 1.0
-
-        design = full / column_scale[:, None]
+        blocks, design = self._blocks(z, values, quantity, units)
 
         # -- the pieces every cell reuses -------------------------
 
@@ -589,56 +775,73 @@ class Cosmography(Reconstructor):
 
         log_det_cov = 2.0 * float(np.sum(np.log(np.diag(chol[0]))))
 
-        cov_inv_y = linalg.cho_solve(chol, y)
+        cov_inv_values = linalg.cho_solve(chol, values)
 
-        cov_inv_design = linalg.cho_solve(chol, design.T)       # (n, degree+1)
+        A_full = design.T @ linalg.cho_solve(chol, design)
 
-        A_full = design @ cov_inv_design                        # (p, p)
+        b_full = design.T @ cov_inv_values
 
-        b_full = design @ cov_inv_y                             # (p,)
-
-        y_cov_y = float(y @ cov_inv_y)
-
-        scales = self._scale_grid(y)
-
-        cells = list(itertools.product(orders, scales))
-
-        log_like = np.empty(len(cells))
-
-        posteriors: list[tuple[Array, Array]] = []
+        values_cov_values = float(values @ cov_inv_values)
 
         two_pi = z.size * math.log(2.0 * math.pi)
 
-        for index, (order, scale) in enumerate(cells):
+        # -- the grid, a product over the observables -------------
 
-            p = order + 1
+        per_block = [
+            list(itertools.product(block.orders, block.scales)) for block in blocks
+        ]
 
-            A = A_full[:p, :p]
-            b = b_full[:p]
+        cells = list(itertools.product(*per_block))
 
-            # Matrix determinant lemma on M = s^2 Phi^T Phi + C: everything
-            # stays (order + 1) square, so the whole grid costs nothing.
-            G = np.eye(p) + scale**2 * A
+        log_like = np.empty(len(cells))
+
+        posteriors: list[tuple[Array, Array, Array]] = []
+
+        for index, cell in enumerate(cells):
+
+            columns = np.concatenate([
+                np.arange(block.columns.start, block.columns.start + order + 1)
+                for block, (order, _) in zip(blocks, cell, strict=True)
+            ])
+
+            widths = np.concatenate([
+                np.full(order + 1, scale)
+                for (order, scale) in cell
+            ])
+
+            A = A_full[np.ix_(columns, columns)]
+
+            b = b_full[columns]
+
+            # Matrix determinant lemma on M = Phi P Phi^T + C with a diagonal
+            # prior P: everything stays as small as the number of coefficients,
+            # so the whole product grid costs almost nothing.
+            scaled = widths[:, None] * A * widths[None, :]
+
+            G = np.eye(columns.size) + scaled
 
             sign, log_det_G = np.linalg.slogdet(G)
 
             if sign <= 0:
 
                 log_like[index] = -np.inf
-                posteriors.append((np.zeros(p), np.zeros((p, p))))
+                posteriors.append((columns, np.zeros(columns.size),
+                                   np.zeros((columns.size, columns.size))))
                 continue
 
-            quadratic = y_cov_y - scale**2 * float(b @ np.linalg.solve(G, b))
+            scaled_b = widths * b
+
+            quadratic = values_cov_values - float(
+                scaled_b @ np.linalg.solve(G, scaled_b)
+            )
 
             log_like[index] = -0.5 * (
                 quadratic + log_det_cov + log_det_G + two_pi
             )
 
-            precision = A + np.eye(p) / scale**2
+            covariance = np.linalg.inv(A + np.diag(1.0 / widths**2))
 
-            covariance = np.linalg.inv(precision)
-
-            posteriors.append((covariance @ b, covariance))
+            posteriors.append((columns, covariance @ b, covariance))
 
         if not np.isfinite(log_like).any():
 
@@ -651,6 +854,8 @@ class Cosmography(Reconstructor):
 
         self._cells = cells
 
+        self._block_labels = [block.label for block in blocks]
+
         self._log_weights = log_like
 
         weights = np.exp(log_like - log_like.max())
@@ -658,99 +863,84 @@ class Cosmography(Reconstructor):
 
         # -- draw ------------------------------------------------
 
-        coefficients, degree_of_draw, pade, acceptance = self._draw(
-            weights, cells, posteriors, degree, n_draws, rng,
-            u_range=(float(u_data.min()), float(u_data.max())),
-            column_scale=column_scale,
+        coefficients, pade, acceptance = self._draw(
+            weights, posteriors, blocks, design.shape[1], n_draws, rng
         )
 
         self._acceptance = acceptance
 
-        paths = _SeriesPaths(
-            coefficients=coefficients,
-            degree_of_draw=degree_of_draw,
-            variable=self.variable,
-            family=self.family,
-            slope=slope,
-            offset=offset,
-            column_scale=column_scale,
-            support=(float(z.min()), float(z.max())),
-            convergence=self.variable.convergence_range(),
-            label=label,
-            pade=pade,
-            acceptance=acceptance,
-        )
+        members = {}
 
-        return {
-            label: Reconstruction.from_predictor(
+        for block in blocks:
+
+            members[block.label] = Reconstruction.from_predictor(
                 grid,
-                paths,
+                _SeriesPaths(
+                    coefficients=coefficients[:, block.columns],
+                    degree_of_draw=np.zeros(n_draws, dtype=int),
+                    variable=self.variable,
+                    family=self.family,
+                    slope=block.slope,
+                    offset=block.offset,
+                    column_scale=block.column_scale,
+                    support=block.support,
+                    convergence=self.variable.convergence_range(),
+                    label=block.label,
+                    pade=None if pade is None else pade[block.label],
+                    acceptance=acceptance,
+                ),
                 provenance=provenance,
                 origin=origin,
-                label=label,
-                unit=str(getattr(data, "unit", "")),
+                label=block.label,
+                unit=block.unit,
             )
-        }
+
+        return members
 
     # ---------------------------------------------------------
-
-    def _scale_grid(self, y: Array) -> Array:
-        """
-        Prior widths for the coefficients, log-uniform.
-
-        The columns are unit-RMS, so a coefficient is the contribution of its
-        basis function to the observable in the observable's own units. The
-        range therefore runs from a small fraction of the data's level to well
-        above it, and the level has to include the mean: a quantity of 100
-        with a scatter of 1 still needs a constant term near 100.
-        """
-
-        level = abs(float(np.mean(y))) + float(np.std(y, ddof=1))
-
-        if level <= 0.0:
-
-            raise DataError("The measurements have no scale to fit.")
-
-        lo, hi = self.scale_range or (0.05 * level, 20.0 * level)
-
-        return np.geomspace(lo, hi, self.n_scale)
 
     def _draw(
         self,
         weights: Array,
-        cells: list[tuple[int, float]],
-        posteriors: list[tuple[Array, Array]],
-        degree: int,
+        posteriors: list[tuple[Array, Array, Array]],
+        blocks: list[_Block],
+        width: int,
         n_draws: int,
         rng: np.random.Generator,
-        *,
-        u_range: tuple[float, float],
-        column_scale: Array,
-    ) -> tuple[Array, Array, tuple[Array, Array] | None, float]:
+    ) -> tuple[Array, dict[str, tuple[Array, Array]] | None, float]:
         """
         Coefficient draws, and their Pade re-expansion where one was asked for.
+
+        The draw is of the **stacked** coefficient vector, so both observables
+        in a joint fit come out of one realisation and inherit whatever
+        correlation the data covariance put between them -- which is the whole
+        reason for fitting them together.
         """
 
         if self.pade is None:
 
-            cell_index = rng.choice(len(cells), size=n_draws, p=weights)
+            cells = rng.choice(len(weights), size=n_draws, p=weights)
 
             return (
-                *self._coefficients_for(cell_index, cells, posteriors, degree, rng),
+                self._coefficients_for(cells, posteriors, width, rng),
                 None,
                 1.0,
             )
 
         # Rejection sampling: an approximant with a pole in the fitted range
         # is not an expansion history, so those draws are replaced rather than
-        # kept and hidden inside a wide quantile. Replacing keeps the draw
-        # count and the realisation index intact, which dropping would not.
-        probe = np.linspace(u_range[0], u_range[1], 200)
+        # kept and hidden inside a wide quantile. In a joint fit a draw has to
+        # be pole-free in *every* observable, since one realisation carries
+        # them all.
+        probes = {
+            block.label: np.linspace(-1.0, 1.0, 200) for block in blocks
+        }
 
-        kept_coefficients = []
-        kept_degrees = []
-        kept_p = []
-        kept_q = []
+        kept: list[Array] = []
+
+        kept_pade: dict[str, list[tuple[Array, Array]]] = {
+            block.label: [] for block in blocks
+        }
 
         attempted = 0
         accepted = 0
@@ -764,29 +954,35 @@ class Cosmography(Reconstructor):
 
             batch = max(wanted * 2, 256)
 
-            cell_index = rng.choice(len(cells), size=batch, p=weights)
+            cells = rng.choice(len(weights), size=batch, p=weights)
 
-            coefficients, degrees = self._coefficients_for(
-                cell_index, cells, posteriors, degree, rng
-            )
+            coefficients = self._coefficients_for(cells, posteriors, width, rng)
 
-            p_coeff, q_coeff = self._to_pade(coefficients, column_scale)
+            good = np.ones(batch, dtype=bool)
 
-            # A real root inside the range shows up as a sign change.
-            q_on_probe = P.polyval(probe, q_coeff)             # (batch, n_probe)
+            per_block = {}
 
-            good = ~np.any(
-                np.sign(q_on_probe[:, :-1]) != np.sign(q_on_probe[:, 1:]),
-                axis=1,
-            )
+            for block in blocks:
+
+                p_coeff, q_coeff = self._to_pade(
+                    coefficients[:, block.columns], block.column_scale
+                )
+
+                on_probe = P.polyval(probes[block.label], q_coeff)
+
+                good &= ~np.any(
+                    np.sign(on_probe[:, :-1]) != np.sign(on_probe[:, 1:]), axis=1
+                )
+
+                per_block[block.label] = (p_coeff, q_coeff)
 
             attempted += batch
             accepted += int(good.sum())
 
-            kept_coefficients.append(coefficients[good])
-            kept_degrees.append(degrees[good])
-            kept_p.append(p_coeff[:, good])
-            kept_q.append(q_coeff[:, good])
+            kept.append(coefficients[good])
+
+            for label, (p_coeff, q_coeff) in per_block.items():
+                kept_pade[label].append((p_coeff[:, good], q_coeff[:, good]))
 
         rate = accepted / attempted if attempted else 0.0
 
@@ -812,54 +1008,54 @@ class Cosmography(Reconstructor):
                 "expansion history. Reduce the denominator degree."
             )
 
-        coefficients = np.concatenate(kept_coefficients)[:n_draws]
-        degrees = np.concatenate(kept_degrees)[:n_draws]
-
-        p_coeff = np.concatenate(kept_p, axis=1)[:, :n_draws]
-        q_coeff = np.concatenate(kept_q, axis=1)[:, :n_draws]
-
-        return coefficients, degrees, (p_coeff, q_coeff), rate
+        return (
+            np.concatenate(kept)[:n_draws],
+            {
+                label: (
+                    np.concatenate([p for p, _ in parts], axis=1)[:, :n_draws],
+                    np.concatenate([q for _, q in parts], axis=1)[:, :n_draws],
+                )
+                for label, parts in kept_pade.items()
+            },
+            rate,
+        )
 
     def _coefficients_for(
         self,
-        cell_index: Array,
-        cells: list[tuple[int, float]],
-        posteriors: list[tuple[Array, Array]],
-        degree: int,
+        cells: Array,
+        posteriors: list[tuple[Array, Array, Array]],
+        width: int,
         rng: np.random.Generator,
-    ) -> tuple[Array, Array]:
+    ) -> Array:
         """
-        Draw coefficients from each selected cell's exact Gaussian posterior.
+        Draw the stacked coefficient vector from each selected cell's exact
+        Gaussian posterior.
 
-        Zero-padded to the largest degree on the grid, so that draws taken at
-        different orders live in one array and stay index-aligned.
+        Zero-padded to the full stacked width, so that draws taken at
+        different orders live in one array and stay index-aligned. A zero
+        coefficient contributes nothing at any derivative order, so the
+        padding is invisible downstream.
         """
 
-        out = np.zeros((cell_index.size, degree + 1))
+        out = np.zeros((cells.size, width))
 
-        degrees = np.empty(cell_index.size, dtype=int)
+        for index in np.unique(cells):
 
-        for index in np.unique(cell_index):
+            rows = np.flatnonzero(cells == index)
 
-            rows = np.flatnonzero(cell_index == index)
+            columns, mean, covariance = posteriors[index]
 
-            order, _ = cells[index]
-
-            mean, covariance = posteriors[index]
-
-            p = order + 1
+            size = columns.size
 
             chol = np.linalg.cholesky(
-                covariance + _JITTER * np.trace(covariance) / p * np.eye(p)
+                covariance + _JITTER * np.trace(covariance) / size * np.eye(size)
             )
 
-            out[np.ix_(rows, np.arange(p))] = (
-                mean[None, :] + rng.standard_normal((rows.size, p)) @ chol.T
+            out[np.ix_(rows, columns)] = (
+                mean[None, :] + rng.standard_normal((rows.size, size)) @ chol.T
             )
 
-            degrees[rows] = order
-
-        return out, degrees
+        return out
 
     def _to_pade(
         self,
@@ -884,16 +1080,14 @@ class Cosmography(Reconstructor):
 
         if self.family == "chebyshev":
 
-            series = np.stack(
-                [C.cheb2poly(row) for row in series],
-            )
+            series = np.stack([C.cheb2poly(row) for row in series])
 
         # Pad or trim to exactly m + n + 1 terms.
         c = np.zeros((series.shape[0], m + n + 1))
 
-        width = min(series.shape[1], m + n + 1)
+        span = min(series.shape[1], m + n + 1)
 
-        c[:, :width] = series[:, :width]
+        c[:, :span] = series[:, :span]
 
         # Denominator: sum_j b_j c[m + i - j] = -c[m + i], i = 1..n, b_0 = 1.
         matrix = np.zeros((series.shape[0], n, n))

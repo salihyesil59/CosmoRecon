@@ -295,7 +295,7 @@ that is entirely correlation.
 | `om.py` ✅ | `Om(z)` | constant (`= Omega_m`) |
 | `om.py` ✅ | `Om3(z1,z2,z3)` — no `H0`, no `Omega_m`, no extrapolation | **exactly 1** |
 | `curvature.py` ✅ | `Ok(z)` (Clarkson–Bassett–Lu) — needs the joint fit | constant, `= Omega_k` |
-| `duality.py` | Etherington `eta(z) = d_L / [(1+z)^2 d_A]`; cosmic opacity | `1` |
+| `duality.py` ✅ | Etherington `eta(z) = d_L / [(1+z) D_M]`; opacity slope `epsilon` — two datasets, independence declared | constant (`= 1` with a calibration) |
 | `litmus.py` | `L(z)` litmus test for `Lambda` | `0` |
 | `growth.py` | growth–geometry consistency: does measured `f sigma_8` match the growth *implied by* the reconstructed geometry under GR? | `0` |
 | `isotropy.py` | the cosmological principle, from BAO across the sky | `0` |
@@ -303,6 +303,39 @@ that is entirely correlation.
 `growth.py` is the S8 tension restated without a model — the tension becomes a
 statement about internal consistency rather than a disagreement between two
 ΛCDM fits.
+
+### Two datasets in one test
+
+The curvature test takes two observables from **one** release, and a joint fit
+keeps their correlation. Distance duality takes a luminosity distance from
+supernovae and a transverse distance from BAO — two releases, two fits, two
+realisation streams — and pairing draw `k` of one with draw `k` of the other is
+only meaningful if the fits share nothing. So the claim is made in the source,
+at one of two scopes:
+
+- `Reconstruction.assume_independent()` for one curve. The claim survives
+  arithmetic on its own side: `(1 + z) * D.assume_independent()` is still
+  independent of whatever it meets, because it contains no data `D` did not.
+- `combine_independent(fit_a, fit_b)` for every function two fits produced.
+  The result is an ordinary `ReconstructionSet` on one realisation index —
+  the first fit's draw order kept, the second's permuted by a fixed,
+  seed-derived permutation — which a null test, an ensemble or a later `at()`
+  uses without knowing it was ever two fits. It refuses a dataset that appears
+  in both fits, an observable that appears in both, and supports that do not
+  overlap.
+
+The permutation is not a formality. Two fits drawn with the same seed reuse the
+same random numbers, and index-pairing them correlates two posteriors that share
+nothing — `r > 0.8` in the test that checks it, `|r| < 0.2` after combination.
+
+**The observable matters as much as the pairing.** A distance modulus goes as
+`5 log10 z` near the origin, a singularity no series represents and no
+stationary kernel expects. Reconstructed directly, it biases the ratio at high
+redshift enough that a third-order series reports a duality violation at
+21 sigma in every mock universe where duality is exact. `data.reduced_modulus`
+subtracts `5 log10 z` from each measurement — exact, covariance unchanged — and
+the same series then reports 0.6 sigma. `Duality` takes the reduced modulus and
+refuses `mu`.
 
 ---
 
@@ -349,6 +382,15 @@ sigma"* statement.
 The mixture is a full `Reconstruction`, not a summary: each pooled draw still
 knows which member's function it is, so it regrids and differentiates, and it
 is only as differentiable as its roughest member.
+
+**Two datasets, one choice of method.** `sn_fit.with_independent(bao_fit)`
+pairs member `m` on one dataset with member `m` on the other, since an analyst
+who reconstructs the supernovae with a Matérn process does the same to the BAO
+distances. The pooled posterior is then a mixture of those *pairs*, sharing one
+member index per draw across both observables — not the product of two
+separate mixtures, which would mostly pair a Gaussian process on one side with
+a polynomial on the other and describe analyses nobody runs. Weights multiply,
+as evidences of independent data do.
 
 **Why this is not bookkeeping.** A rigid method's posterior covers the
 uncertainty in its own parameters, not the error it makes by being the wrong

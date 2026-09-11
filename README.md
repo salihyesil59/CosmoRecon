@@ -284,6 +284,78 @@ result.**
 That is what the library is for. It is a test in the suite, and
 `examples/02_real_data.py` prints the table.
 
+### Distance duality, and what not to reconstruct
+
+`η(z) = d_L / [(1+z) D_M]` is exactly 1 if photons are conserved and travel on
+null geodesics (Etherington 1933). No expansion history, curvature or dark
+energy enters. Its two sides come from different probes, which makes it the
+first test built from **two datasets**, so the independence between them is
+declared in the source. `combine_independent(sn_fit, bao_fit)` does that for a
+pair of fits. `sn_fit.with_independent(bao_fit)` does it for a pair of
+ensembles, pairing member *m* with member *m*, since a method is a choice an
+analyst makes once. As with curvature, the calibration (sound horizon and
+supernova zero point) collapses into one constant. So whether `η` is constant,
+and the opacity slope `ε` in `η ∝ (1+z)^ε`, need none of it.
+
+**What not to reconstruct.** A distance modulus goes as `5 log₁₀ z` near the
+origin. That singularity cannot be represented by a series and is not expected
+by a stationary kernel, and a fit pays for it where the supernova data are
+sparsest. On mock Union3 + DESI DR2 surveys of a universe in which duality holds
+*exactly*:
+
+| fitted to | Chebyshev, order 3 | Gaussian process |
+|---|---|---|
+| `mu` | **21 σ**, in 12 of 12 universes | 0 σ, with an interval ~3 mag wide in the data gap |
+| `mu − 5 log₁₀ z` | 0.6 σ, never above 2 | 0 σ |
+
+`data.reduced_modulus` makes that subtraction. It is exact and leaves the
+covariance unchanged, and `Duality` refuses a reconstruction of `mu`.
+
+On the real Union3 and DESI DR2 data:
+
+| method | opacity slope `ε` |
+|---|---|
+| Chebyshev in `ln(1+z)` | **+0.147 ± 0.031** (4.8 σ) |
+| Chebyshev in `y` | **−0.071 ± 0.026** (2.7 σ) |
+| Gaussian process (Matérn) | −0.092 ± 0.092 (1.0 σ) |
+| Chebyshev in `y`, order 3 | −0.045 ± 0.072 (0.6 σ) |
+| **method-marginalised** | **−0.012 ± 0.111** (0.1 σ) |
+
+Two nearly identical methods report a cosmic opacity **of opposite sign**, each
+beyond 2.5 σ, and either result would have made a paper. Marginalised over the
+method, the slope is consistent with a transparent universe and about four
+times wider than either single-method number. That width is the uncertainty
+these 28 numbers actually leave.
+
+**The mocks say the same thing, and say why.** In the twelve duality-exact
+universes the biases have a direction. The series in `y` leans negative, with
+a mean pull of −1.5, and the series in `ln(1+z)` leans positive, at +0.75.
+Those are exactly the signs they report on the real data, so the opposite-sign
+opacities come from the methods, not the sky. The single-method slope test
+exceeds 2 σ in 3 of 12 realisations for each series in `y` and in 7 of 12 for
+`ln(1+z)`. The Gaussian process does so in 2 of 10, and refuses in the other
+two, where its BAO posterior reaches zero inside the data gap. **The
+method-marginalised slope exceeds 2 σ in none of the twelve.**
+
+**And a finding about the significance itself.** The same mocks measure how
+often the constancy test exceeds 2 σ when its null is exactly true. The nominal
+rate is about 5%. Measured:
+
+| method | rate |
+|---|---|
+| Gaussian process | 0 of 12 |
+| Chebyshev in `y`, order free | 6 of 12 |
+| Chebyshev in `ln(1+z)`, order free | 12 of 12 |
+| Chebyshev in `y`, order 3 | 0 of 12 |
+
+The chi-square counts as degrees of freedom modes that a Gaussian process's
+prior still dominates, which dilutes it. A free-order series has a posterior
+narrower than its error. So the real data's marginalised constancy number, 0.00 σ,
+is not evidence of anything. The slope, a single number with a width, is the
+cleaner statement, and its mixture is the only test here that stayed within
+2 σ on every mock. Calibrating significances against simulation is the next
+item on the roadmap.
+
 ---
 
 ## The data
@@ -341,8 +413,14 @@ bundled; they are reachable through the optional CosmoFit bridge.
       supports it; the GP does not yet.
 - [x] **`consistency/curvature.py`.** The Clarkson–Bassett–Lu test, which on
       DESI DR2 alone reports honestly that the data cannot support it.
-- [ ] **`consistency/`, the rest.** Distance duality, litmus, growth–geometry,
-      isotropy.
+- [x] **`consistency/duality.py`.** Etherington distance duality and the
+      opacity slope, across two datasets with the independence declared, and
+      the supernovae reconstructed in a form that does not invent a violation.
+- [ ] **Significance calibration.** The null tests' chi-square, measured
+      against mocks where the null is exactly true, is too conservative for a
+      Gaussian process and too eager for a free-order series. Calibrate it by
+      simulation, and re-measure every published number under the fix.
+- [ ] **`consistency/`, the rest.** Litmus, growth–geometry, isotropy.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -372,7 +450,7 @@ path itself:
 python -m pytest
 ```
 
-204 tests, all of which run in about two minutes.
+229 tests, all of which run in about two and a half minutes.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

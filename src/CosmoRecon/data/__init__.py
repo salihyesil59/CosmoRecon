@@ -37,6 +37,7 @@ from CosmoRecon.data.dataset import (
     Dataset,
     MultiObservableDataset,
     check_combination,
+    reduced_modulus,
 )
 
 from CosmoRecon.data.loader import (
@@ -54,6 +55,8 @@ __all__ = [
     "Dataset",
     "MultiObservableDataset",
     "check_combination",
+    # transformations
+    "reduced_modulus",
     # the bundled releases
     "chronometers",
     "desi_dr2_bao",

@@ -256,6 +256,71 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     picks the right expansion variable, and nothing inside a single-method
     analysis could tell.
 
+- **`consistency.Duality`** — the Etherington relation
+  `eta(z) = d_L / [(1+z) D_M] = 1`, exact whenever photons are conserved and
+  travel on null geodesics, and the opacity slope `epsilon` in
+  `eta ~ (1+z)^epsilon` (Avgoustidis et al. 2010).
+
+  - **The first test built from two datasets.** Supernovae and BAO are two
+    fits and two realisation streams, and pairing them needs an independence
+    claim. Without one the statistic raises `AlignmentError`.
+  - The calibration collapses to one constant, `r_d 10^(Delta/5)`, so
+    **constancy and the slope need none**. `eta = 1` needs both halves, and
+    `sound_horizon` and `magnitude_offset` are required together and never
+    defaulted. A zero point left at zero silently would put an
+    absolute-magnitude assumption into a result that looks model-independent.
+  - `opacity()` returns `epsilon` as a one-point reconstruction. Each draw's
+    slope comes from `ln eta` against `ln(1+z)`, with a free level and fixed
+    inverse-variance weights, so it is tested with `significance` like any
+    other posterior. It refuses a transverse-distance posterior that reaches
+    zero rather than computing on the draws that happen to be positive.
+  - Exact on a toy universe: `eta = 1` in every draw to `1e-6`, and `epsilon`
+    recovered from `-0.10` to `+0.20` to `1e-5` with the zero point differing
+    between draws and no calibration given.
+  - **Why the supernovae enter as `mu - 5 log10 z`.** On twelve mock Union3 +
+    DESI DR2 surveys of a universe where duality holds exactly, a third-order
+    series fitted to `mu` reports a violation at a median 21 sigma, in every
+    realisation. That is the cost of a logarithmic singularity at the origin,
+    paid in Union3's high-redshift gap. Fitted to the reduced modulus, the same
+    series reports 0.6 sigma. A reconstruction labelled `mu` is refused with
+    that explanation.
+  - **On Union3 and DESI DR2, two nearly identical methods report opposite
+    signs.** A Chebyshev series in `ln(1+z)` gives `epsilon = +0.147 ± 0.031`
+    and one in `y` gives `-0.071 ± 0.026`. Marginalised over four methods the
+    slope is `-0.012 ± 0.111`, consistent with transparency and about four
+    times wider than either. On the duality-exact mocks the same two series
+    are biased in exactly those directions (mean pulls `+0.75` and `-1.5`).
+    Single-method slope tests there exceed 2 sigma in 20–58% of realisations,
+    and the method-marginalised one in none of twelve.
+  - **The same mocks expose a calibration problem in the significance.** The
+    constancy test should exceed 2 sigma about 5% of the time under a true
+    null. It does so in 0 of 12 realisations for a Gaussian process, whose
+    prior-dominated modes are counted as degrees of freedom, and in 6 to 12 of
+    12 for a series with its order free, whose posterior is narrower than its
+    error. Recorded as open work rather than patched here.
+
+- **`data.reduced_modulus`** — `mu - 5 log10 z`, the supernova distance
+  modulus with its singularity at the origin removed. Exact, covariance
+  unchanged, dataset name kept, so the same observations are still recognised
+  as the same observations.
+
+- **`combine_independent`** — two fits that share no data, as one
+  `ReconstructionSet` on one realisation index. The first fit keeps its draw
+  order and the second is permuted by a fixed, seed-derived permutation. The
+  permutation matters: fits drawn with the same seed reuse the same random
+  numbers, and index-pairing them correlates two posteriors at `r > 0.8`
+  (`|r| < 0.2` after combination). It refuses a dataset shared between the
+  fits, an observable shared between them, and supports that do not overlap.
+  Members keep their predictors, so they still regrid.
+
+- **`EnsembleFit.with_independent`** — two ensembles over independent data,
+  paired member by member, because an analyst who fits one dataset with a
+  Matérn process fits the other with one too. The pooled posterior is a
+  mixture of those pairs, one member index per draw shared across both
+  observables, rather than a product of two mixtures that would mostly pair a
+  Gaussian process with a polynomial. Weights multiply. `MethodEnsemble`'s
+  pooling moved to a module function so that both routes share it.
+
 ### Fixed
 
 - **`MethodEnsemble` silently dropped every observable but one.** Handed a
@@ -274,6 +339,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `significance` now hands the statistic the whole set rather than one curve,
   which is what lets a two-observable null test be written the same way as a
   one-observable one.
+
+- **An independence claim was consumed by the first arithmetic done with it.**
+  `(1 + z) * D.assume_independent()` came back as a fresh realisation stream
+  with the claim dropped, so it could be combined with nothing at all — and
+  distance duality, which needs exactly that expression, could not be written
+  with the claim where it belongs. A claim about a fit is a claim about
+  everything built from that fit alone, and arithmetic now carries it forward.
+  Results anchored on an undeclared fit still make no claim, and that is tested
+  too.
+
+- **A one-point reconstruction had no covariance matrix.** `np.cov` collapses a
+  single variable to a 0-d array, so `significance` could not be asked of a
+  scalar posterior — `H.at(0.0)`, or the opacity slope — although the library
+  defines those as posteriors like any other. `cov()` now returns `(1, 1)`.
 
 ### Changed
 
@@ -294,9 +373,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (204 tests) covering the core contract, the kernels, the GP,
-  cosmography, joint fits, the data layer, the ensemble, the Om diagnostics
-  and the curvature test: sample paths checked against the exact GP posterior to the
+- Test suite (229 tests) covering the core contract, the kernels, the GP,
+  cosmography, joint fits, the data layer, the ensemble, the Om diagnostics,
+  the curvature test and distance duality: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

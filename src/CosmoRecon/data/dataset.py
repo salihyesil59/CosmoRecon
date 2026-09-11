@@ -41,6 +41,7 @@ __all__ = [
     "Dataset",
     "MultiObservableDataset",
     "check_combination",
+    "reduced_modulus",
 ]
 
 
@@ -384,6 +385,67 @@ class MultiObservableDataset:
             f"<MultiObservableDataset {self.name} "
             f"{list(self.quantities())} n={len(self)}>"
         )
+
+
+# ============================================================
+# Transformations
+# ============================================================
+
+def reduced_modulus(dataset: Dataset) -> Dataset:
+    """
+    ``mu(z) - 5 log10(z)``: a supernova distance modulus with its singularity
+    at the origin taken out.
+
+    Near ``z = 0`` a distance modulus goes as ``5 log10(z)``, which no series
+    represents and no stationary kernel expects. A reconstruction of ``mu``
+    itself pays for that singularity where the data are sparsest, and on mock
+    Union3 data the bias it leaves at high redshift is large enough to report
+    a violation of distance duality at 21 sigma in a universe where duality is
+    exact. The reduced modulus is smooth at the origin -- its limit there is
+    ``5 log10(c / H0) + 25`` plus the zero point -- and a reconstruction of it
+    does not have the problem. See :mod:`CosmoRecon.consistency.duality`.
+
+    The transformation is **exact**: a known number is subtracted from each
+    measurement, so the covariance is unchanged and nothing is approximated.
+    The dataset keeps its name, so it is still recognised as the same
+    observations -- fitting both forms and combining them as independent is
+    refused, as it should be.
+    """
+
+    if dataset.observable != "mu":
+
+        raise DataError(
+            f"{dataset.name or 'This dataset'} measures "
+            f"{dataset.observable!r}, not a distance modulus 'mu'; there is "
+            "nothing to reduce."
+        )
+
+    z = np.asarray(dataset.z, dtype=float)
+
+    if np.any(z <= 0.0):
+
+        raise DataError(
+            f"{dataset.name or 'This dataset'} has a measurement at "
+            f"z = {z.min():.4g}, where log10(z) is undefined. A distance "
+            "modulus at non-positive redshift is not a cosmological distance."
+        )
+
+    note = (
+        "Reduced to mu - 5 log10(z), an exact transformation: the covariance "
+        "is the released one, unchanged."
+    )
+
+    return Dataset(
+        z=z,
+        y=np.asarray(dataset.y, dtype=float) - 5.0 * np.log10(z),
+        cov=dataset.cov,
+        observable="mu_reduced",
+        unit=dataset.unit,
+        name=dataset.name,
+        reference=dataset.reference,
+        note=(dataset.note + " " + note).strip(),
+        excludes=dataset.excludes,
+    )
 
 
 # ============================================================

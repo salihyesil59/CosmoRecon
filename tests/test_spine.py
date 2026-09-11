@@ -141,6 +141,54 @@ def test_independence_has_to_be_declared(H):
     assert combined.origin == H.origin        # H is the anchor
 
 
+def test_an_independence_claim_survives_arithmetic_on_its_own_side(H):
+    """
+    Distance duality writes ``d_L / ((1 + z) * D_M)``, and the independence
+    claim belongs on ``D_M`` -- before the arithmetic, not after it. A claim
+    made about a fit covers everything built from that fit alone, so it must
+    not be consumed by the first multiplication.
+    """
+
+    other = reconstruction(FlatLCDM(seed=1), Z, label="H2")
+
+    scaled = (1.0 + Z) * other.assume_independent()
+
+    H / scaled
+    H - np.log(other.assume_independent())
+
+    # Two independent fits combined with each other are, together, still
+    # independent of a third.
+    third = reconstruction(FlatLCDM(seed=2), Z, label="H3")
+
+    pair = other.assume_independent() + third.assume_independent()
+
+    assert (H * pair).origin == H.origin
+
+
+def test_a_scalar_posterior_has_a_covariance_and_a_significance(H):
+    """
+    A one-point reconstruction -- ``H.at(0.0)``, an opacity slope -- is a
+    posterior over a number, and has to be testable like any other.
+    """
+
+    H0 = H.at(0.0)
+
+    assert H0.cov().shape == (1, 1)
+
+    chi2, n_eff, _, sigma = significance(H0, 70.0)
+
+    assert n_eff == 1
+    assert sigma < 3.0
+
+
+def test_arithmetic_on_an_undeclared_fit_makes_no_claim(H):
+
+    other = reconstruction(FlatLCDM(seed=1), Z, label="H2")
+
+    with pytest.raises(AlignmentError, match="independence claim"):
+        (2.0 * H) + (2.0 * other)
+
+
 def test_constants_combine_with_anything(H):
 
     c = Reconstruction.constant(Z, 1.0)

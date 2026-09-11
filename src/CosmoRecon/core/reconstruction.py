@@ -368,7 +368,11 @@ class Reconstruction:
         if self._analytic is not None:
             return self._analytic[1].copy()
 
-        return np.cov(self.draws, rowvar=False, ddof=1)
+        # np.cov collapses a single variable to a 0-d array. A one-point
+        # reconstruction is a scalar posterior -- H0, a curvature, an opacity
+        # slope -- and it still has a 1x1 covariance, which is what everything
+        # consuming this expects.
+        return np.atleast_2d(np.cov(self.draws, rowvar=False, ddof=1))
 
     def var(self) -> Array:
 
@@ -597,14 +601,7 @@ class Reconstruction:
 
         expression = f"{ufunc.__name__}({', '.join(symbols)})"
 
-        return Reconstruction.from_draws(
-            grid,
-            result,
-            origin=origin,
-            provenance=_merge_provenance(recons, expression, result.shape[0]),
-            label=_as_label(expression),
-            unit="",
-        )
+        return _derived(recons, grid, origin, result, expression)
 
     def _binary(self, other, op: Callable, symbol: str, flip: bool = False):
 
@@ -635,13 +632,7 @@ class Reconstruction:
 
         expression = f"({names[0]} {symbol} {names[1]})"
 
-        return Reconstruction.from_draws(
-            grid,
-            result,
-            origin=origin,
-            provenance=_merge_provenance(recons, expression, result.shape[0]),
-            label=_as_label(expression),
-        )
+        return _derived(recons, grid, origin, result, expression)
 
     def __add__(self, other):
         return self._binary(other, np.add, "+")
@@ -884,6 +875,44 @@ def _align(
         aligned.append(draws[:n_common])
 
     return np.array(grid, dtype=float), result_origin, aligned
+
+
+def _derived(
+    recons: Sequence[Reconstruction],
+    grid: Array,
+    origin: Origin,
+    draws: DrawArray,
+    expression: str,
+) -> Reconstruction:
+    """
+    The result of arithmetic, carrying forward any independence claim.
+
+    A claim made about a fit is a claim about everything built from that fit
+    alone. ``(1 + z) * D.assume_independent()`` is still independent of
+    whatever it meets next -- it contains no data that ``D`` did not -- so the
+    declaration survives the arithmetic rather than being consumed by it.
+    Without this the result would be a fresh realisation stream aligned with
+    nothing and combinable with nothing, and the only way to use it would be
+    to re-declare a claim the source already makes.
+
+    The rule is exact: the result is marked independent when its origin was
+    minted by :func:`_align` because every contributing fit had declared
+    itself independent. A result anchored on an undeclared fit keeps that
+    fit's origin and makes no claim.
+    """
+
+    independent = origin != CONSTANT_ORIGIN and all(
+        r.origin != origin for r in recons
+    )
+
+    return Reconstruction(
+        grid,
+        draws=draws,
+        origin=origin,
+        provenance=_merge_provenance(recons, expression, draws.shape[0]),
+        label=_as_label(expression),
+        independent=independent,
+    )
 
 
 def _merge_provenance(

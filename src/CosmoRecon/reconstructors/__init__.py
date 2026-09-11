@@ -47,6 +47,7 @@ from CosmoRecon.reconstructors.base import (
     DEFAULT_N_DRAWS,
     ReconstructionSet,
     Reconstructor,
+    combine_independent,
 )
 
 from CosmoRecon.reconstructors.kernels import (
@@ -75,6 +76,7 @@ __all__ = [
     # the contract
     "Reconstructor",
     "ReconstructionSet",
+    "combine_independent",
     "DEFAULT_N_DRAWS",
     # methods
     "GaussianProcess",

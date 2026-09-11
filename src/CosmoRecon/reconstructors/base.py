@@ -26,7 +26,12 @@ from scipy import linalg
 from CosmoRecon.typing import Array, Redshift
 
 from CosmoRecon.core.errors import DataError, EvidenceUnavailableError
-from CosmoRecon.core.grid import linear_grid, suggested_n, support_of
+from CosmoRecon.core.grid import (
+    common_support,
+    linear_grid,
+    suggested_n,
+    support_of,
+)
 from CosmoRecon.core.provenance import Origin, Provenance, new_origin
 from CosmoRecon.core.reconstruction import Reconstruction
 
@@ -34,6 +39,7 @@ from CosmoRecon.core.reconstruction import Reconstruction
 __all__ = [
     "Reconstructor",
     "ReconstructionSet",
+    "combine_independent",
     "unpack_dataset",
     "unpack_joint",
 ]
@@ -174,6 +180,173 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
             f"origin={self._origin} support=[{lo:.4g}, {hi:.4g}] "
             f"| {self._provenance.describe()}>"
         )
+
+
+# ============================================================
+# Two independent fits, as one
+# ============================================================
+
+class _RowSelection:
+    """
+    A predictor whose draws are a fixed selection of another predictor's rows.
+
+    The selection is fixed at construction, so the wrapper satisfies the
+    determinism clause of the
+    :class:`~CosmoRecon.core.reconstruction.Predictor` contract whenever the
+    inner predictor does -- and a reconstruction built on it can still be
+    regridded and differentiated analytically.
+    """
+
+    __slots__ = ("_inner", "_rows")
+
+    def __init__(self, inner, rows: np.ndarray) -> None:
+
+        self._inner = inner
+        self._rows = rows
+
+    def __call__(self, z: Array, *, derivative: int = 0) -> Array:
+
+        return self._inner(z, derivative=derivative)[self._rows]
+
+
+def _set_draws(fit: ReconstructionSet) -> int:
+
+    return int(next(iter(fit.values())).n_draws)
+
+
+def _reindexed(
+    r: Reconstruction,
+    rows: np.ndarray,
+    origin: Origin,
+) -> Reconstruction:
+
+    provenance = r.provenance.with_draws(int(rows.size))
+
+    if r.resamplable:
+
+        return Reconstruction(
+            r.z,
+            predictor=_RowSelection(r._predictor, rows),
+            origin=origin,
+            provenance=provenance,
+            label=r.label,
+            unit=r.unit,
+        )
+
+    return Reconstruction(
+        r.z,
+        draws=r.draws[rows],
+        origin=origin,
+        provenance=provenance,
+        label=r.label,
+        unit=r.unit,
+    )
+
+
+def combine_independent(
+    first: ReconstructionSet,
+    second: ReconstructionSet,
+) -> ReconstructionSet:
+    """
+    Two fits that share no data, as one set on one realisation index.
+
+    >>> both = combine_independent(                             # doctest: +SKIP
+    ...     GaussianProcess().fit(reduced_modulus(union3()), grid=grid),
+    ...     GaussianProcess().fit(desi.select("DM_over_rs"), grid=grid),
+    ... )
+    >>> Duality().evaluate(both["mu_reduced"], both["DM_over_rs"])
+    ...                                                         # doctest: +SKIP
+
+    The name is the claim, and calling it is making the claim in the source,
+    where a reader can disagree with it -- exactly as
+    :meth:`~CosmoRecon.core.reconstruction.Reconstruction.assume_independent`
+    does for a single curve. The difference is scope: this declares it once
+    for every function either fit produced, and the result is an ordinary
+    :class:`ReconstructionSet` that a null test, an ensemble or a later
+    ``at()`` can use without knowing that it was ever two fits.
+
+    How the realisations are paired. The first set keeps its draw order; the
+    second's rows are permuted by a fixed permutation before being paired
+    with them. Permuting is not a formality: two fits drawn with the same seed
+    reuse the same underlying random numbers, and pairing their draws by
+    index would correlate two posteriors that share nothing. The permutation
+    is seeded from the two fits' own seeds, so the result is reproducible.
+    If the fits hold different numbers of draws, both are cut to the smaller.
+
+    Refused:
+
+    - **The same observable in both.** Two posteriors for one function is a
+      question for :mod:`CosmoRecon.ensemble`, not a union.
+    - **The same dataset in both.** Whatever else is true of two fits to one
+      dataset, they are not independent, and pairing them as though they
+      were narrows every interval built from both.
+    - **Supports that do not overlap.** The combined set is a measurement only
+      where both are, and if that range is empty there is no joint statement
+      to make.
+    """
+
+    shared = sorted(set(first) & set(second))
+
+    if shared:
+
+        raise ValueError(
+            f"Both fits produced {shared}. A union needs distinct functions; "
+            "two posteriors for the same function are a comparison between "
+            "methods or datasets, which is what MethodEnsemble is for."
+        )
+
+    overlap = sorted(
+        set(first.provenance.datasets()) & set(second.provenance.datasets())
+    )
+
+    if overlap:
+
+        raise DataError(
+            f"Both fits used {overlap}, so they are not independent: pairing "
+            "their draws as though they were would count those measurements "
+            "twice and report an interval that is too tight. Fit the "
+            "observables jointly instead."
+        )
+
+    support = common_support(first.support, second.support)
+
+    n_first, n_second = _set_draws(first), _set_draws(second)
+
+    n = min(n_first, n_second)
+
+    rng = np.random.default_rng([
+        int(first.provenance.seed or 0),
+        int(second.provenance.seed or 0),
+        n,
+        0x1DE,
+    ])
+
+    rows_first = np.arange(n)
+
+    rows_second = rng.permutation(n_second)[:n]
+
+    origin = new_origin()
+
+    members = {
+        name: _reindexed(r, rows_first, origin) for name, r in first.items()
+    }
+
+    members.update(
+        {name: _reindexed(r, rows_second, origin) for name, r in second.items()}
+    )
+
+    provenance = first.provenance.derive(
+        f"independent({', '.join(first)}; {', '.join(second)})",
+        second.provenance,
+        n_draws=n,
+    )
+
+    return ReconstructionSet(
+        members,
+        origin=origin,
+        support=support,
+        provenance=provenance,
+    )
 
 
 # ============================================================

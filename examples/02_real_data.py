@@ -4,11 +4,11 @@ The same machinery on real observations.
     python examples/02_real_data.py
 
 Example 01 runs on mocks, because validating a method needs a known truth.
-This one runs on the bundled releases -- 32 cosmic chronometers and DESI DR2
-BAO -- where there is no truth to compare against and the output is a result
-rather than a check.
+This one runs on the bundled releases -- 32 cosmic chronometers, DESI DR2 BAO
+and the Union3 supernovae -- where there is no truth to compare against and the
+output is a result rather than a check.
 
-Three things come out of it:
+Five things come out of it:
 
 1. What the data are, including the parts a user has to know before trusting
    the numbers -- an arbitrary zero point, a fiducial cosmology in the
@@ -23,6 +23,9 @@ Three things come out of it:
    library's argument stops being methodological and starts changing what a
    result is: the same twelve numbers support anything from no violation of
    the Copernican principle to a decisive one, depending only on the method.
+5. Distance duality from Union3 and DESI DR2 -- two datasets, two fits, the
+   independence between them declared -- where two nearly identical methods
+   report a cosmic opacity of opposite sign.
 """
 
 from __future__ import annotations
@@ -39,13 +42,19 @@ from CosmoRecon import (                                          # noqa: E402
     C_LIGHT_KM_S,
     Cosmography,
     Curvature,
+    Duality,
     ExtrapolationWarning,
     GaussianProcess,
     MethodEnsemble,
     Om,
     Om3,
 )
-from CosmoRecon.data import chronometers, desi_dr2_bao            # noqa: E402
+from CosmoRecon.data import (                                     # noqa: E402
+    chronometers,
+    desi_dr2_bao,
+    reduced_modulus,
+    union3,
+)
 
 
 def rule(title: str) -> None:
@@ -254,5 +263,102 @@ print("   The honest reading is the marginalised one: six transverse and six")
 print("   radial BAO measurements, one of which has to be differentiated, do")
 print("   not constrain Ok(z). This dataset cannot answer the question, and")
 print("   saying so is the result.")
+
+
+# ============================================================
+# 6. Distance duality, across two datasets
+# ============================================================
+
+rule("6. Distance duality from Union3 and DESI DR2")
+
+# eta(z) = d_L / [(1+z) D_M] is exactly 1 if photons are conserved and travel
+# on null geodesics. No expansion history, curvature or dark energy enters.
+#
+# Its two sides come from different probes, so this is two fits, and the
+# independence between them is declared -- supernovae and galaxies share no
+# data. with_independent pairs member m on one dataset with member m on the
+# other, since a method is a choice an analyst makes once.
+#
+# The supernovae enter as the reduced modulus mu - 5 log10 z. A reconstruction
+# of mu itself pays for its logarithmic singularity at the origin where the
+# data are sparse, and invents a violation at 21 sigma in mock universes where
+# duality holds exactly.
+#
+# Neither question asked below needs a calibration: the opacity slope epsilon
+# in eta ~ (1+z)^epsilon absorbs the sound horizon and the supernova zero
+# point into its free level.
+
+supernovae = reduced_modulus(union3())
+
+# Where both are measured: Union3 reaches z = 2.26, DESI's transverse
+# distances start at z = 0.51.
+duality_grid = np.linspace(0.51, 2.26, 20)
+
+duality_ensemble = MethodEnsemble([
+    GaussianProcess(kernel="matern"),
+    Cosmography("y"),
+    Cosmography("y", order=3),
+    Cosmography("log"),
+])
+
+both = duality_ensemble.fit(
+    supernovae, grid=duality_grid, n_draws=4000, seed=7
+).with_independent(
+    duality_ensemble.fit(transverse, grid=duality_grid, n_draws=4000, seed=7)
+)
+
+print(f"   {len(supernovae)} supernova bins and {len(transverse)} transverse BAO"
+      f" distances, over z = {duality_grid[0]:.2f} to {duality_grid[-1]:.2f}")
+print()
+print("   opacity slope epsilon in eta ~ (1+z)^epsilon:")
+
+
+def opacity(fit):
+    slope = Duality().opacity(fit["mu_reduced"], fit["DM_over_rs"])
+    return float(slope.mean()[0]), float(slope.std()[0])
+
+
+for name, fit in both.members.items():
+    mean, width = opacity(fit)
+    print(f"     {name:36s} {mean:+.3f} +/- {width:.3f}"
+          f"  ({abs(mean) / width:.1f} sigma)")
+
+mean, width = opacity(both.marginalised)
+
+print(f"     {'-- method-marginalised':36s} {mean:+.3f} +/- {width:.3f}"
+      f"  ({abs(mean) / width:.1f} sigma)")
+
+print()
+print("   Two free-order Chebyshev fits to the same 28 numbers report a cosmic")
+print("   opacity of opposite sign, each at more than two and a half sigma.")
+print("   Either would have been a paper. Marginalised over the method the slope")
+print("   is consistent with a transparent universe, and about four times wider")
+print("   than either claimed.")
+print()
+print("   The signs are the methods', not the sky's. On mock surveys where the")
+print("   slope is exactly zero, the series in y leans negative and the series")
+print("   in ln(1+z) positive -- and the method-marginalised slope stayed within")
+print("   2 sigma in every one of twelve.")
+
+comparison = both.significance(
+    lambda s: Duality().statistic(s["mu_reduced"], s["DM_over_rs"]),
+    1.0,
+    marginalise_constant=True,
+    name="eta(z), tested for constancy",
+)
+
+print()
+
+for line in comparison.summary().splitlines()[1:]:
+    print("   " + line.strip())
+
+print()
+print("   The constancy test tells the same story method by method, but read its")
+print("   marginalised number with care. The Gaussian process counts as degrees")
+print("   of freedom modes its prior still dominates, which dilutes a chi-square:")
+print("   on mocks where duality is exact it never exceeds 2 sigma, while a")
+print("   free-order series does so half the time or more. That is a calibration")
+print("   problem of the significance itself, measured and listed as open work;")
+print("   the slope, one number with a width, is the cleaner statement here.")
 
 print()

@@ -25,10 +25,14 @@ Members:
     radial BAO distances reconstructed jointly, and needs no calibration at all
     to ask either whether the universe is FLRW or whether it is flat.
 
-``duality.py``
-    The Etherington relation ``eta(z) = d_L / [(1 + z)^2 d_A]``, which is 1
-    in any metric theory with photon conservation, plus the cosmic-opacity
-    parametrisations that absorb a violation.
+``duality.py`` (done)
+    The Etherington relation ``eta(z) = d_L / [(1 + z) D_M]``, which is 1 in
+    any metric theory with photon conservation, and the opacity slope
+    ``epsilon`` in ``eta ~ (1 + z)^epsilon``. The first test built from two
+    different datasets, so the independence between them is declared rather
+    than assumed. Neither constancy nor the slope needs a calibration; and the
+    supernovae enter as ``mu - 5 log10 z``, because a reconstruction of ``mu``
+    itself invents a violation in a universe that has none.
 
 ``litmus.py``
     The ``L(z)`` litmus test for a cosmological constant.
@@ -54,6 +58,8 @@ from CosmoRecon.consistency.base import (
 
 from CosmoRecon.consistency.curvature import Curvature
 
+from CosmoRecon.consistency.duality import Duality
+
 from CosmoRecon.consistency.om import Om, Om3
 
 
@@ -67,4 +73,5 @@ __all__ = [
     "Om",
     "Om3",
     "Curvature",
+    "Duality",
 ]

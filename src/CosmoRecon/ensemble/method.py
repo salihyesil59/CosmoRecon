@@ -39,7 +39,7 @@ from scipy.special import logsumexp
 
 from CosmoRecon.typing import Array, Redshift
 
-from CosmoRecon.core.errors import CosmoReconError
+from CosmoRecon.core.errors import CosmoReconError, GridMismatchError
 from CosmoRecon.core.provenance import Provenance, new_origin
 from CosmoRecon.core.reconstruction import Reconstruction
 
@@ -51,6 +51,7 @@ from CosmoRecon.reconstructors.base import (
     DEFAULT_N_DRAWS,
     ReconstructionSet,
     Reconstructor,
+    combine_independent,
 )
 
 
@@ -378,6 +379,97 @@ class EnsembleFit:
             name=name,
         )
 
+    def with_independent(self, other: "EnsembleFit") -> "EnsembleFit":
+        """
+        This ensemble fit and another over **different, independent data**,
+        as one.
+
+        >>> sn = ensemble.fit(reduced_modulus(union3()), grid=grid)
+        ...                                                        # doctest: +SKIP
+        >>> bao = ensemble.fit(desi.select("DM_over_rs"), grid=grid)
+        ...                                                        # doctest: +SKIP
+        >>> both = sn.with_independent(bao)                        # doctest: +SKIP
+        >>> both.significance(                                     # doctest: +SKIP
+        ...     lambda s: Duality().statistic(s["mu_reduced"], s["DM_over_rs"]),
+        ...     1.0, marginalise_constant=True,
+        ... )
+
+        What a two-dataset null test needs from an ensemble, and why it is not
+        just the two marginalised posteriors side by side.
+
+        **A method is a choice made once.** An analyst who reconstructs the
+        supernovae with a Matern process reconstructs the BAO distances with
+        one too. So member ``m`` of the result is member ``m`` of this fit
+        paired with member ``m`` of the other -- see
+        :func:`~CosmoRecon.reconstructors.base.combine_independent` -- and its
+        significance is the number that analyst would have quoted.
+
+        **The mixture is a mixture of those pairs**, not the product of two
+        separate mixtures. Pooling each side on its own would pair a Gaussian
+        process on one dataset with a polynomial on the other in most draws,
+        and the "method-marginalised" number would then describe analyses
+        nobody runs. Pooling the pairs keeps the before-and-after comparison
+        between like and like.
+
+        Weights multiply, since the two datasets are independent: equal
+        weights stay equal, and evidence weights combine the way evidences of
+        independent data do.
+        """
+
+        if set(self._sets) != set(other._sets):
+
+            raise ValueError(
+                f"The two ensembles have different members "
+                f"({sorted(self._sets)} and {sorted(other._sets)}). Members are "
+                "paired by method, so both datasets have to be reconstructed "
+                "by the same set of methods."
+            )
+
+        if self._grid.size != other._grid.size or not np.allclose(
+            self._grid, other._grid
+        ):
+
+            raise GridMismatchError(
+                "The two ensembles were fitted on different grids. Fit both "
+                "on one grid inside the redshift range the datasets share -- "
+                "which is also the only range a joint statement about them "
+                "means anything on; see core.grid.common_support."
+            )
+
+        names = list(self._sets)
+
+        sets = {
+            name: combine_independent(self._sets[name], other._sets[name])
+            for name in names
+        }
+
+        raw = {name: self._weights[name] * other._weights[name] for name in names}
+
+        total = sum(raw.values())
+
+        weights = {name: value / total for name, value in raw.items()}
+
+        observables = tuple(sorted(set(self._observables) | set(other._observables)))
+
+        pooled = self._marginalised.provenance
+
+        marginalised = _pool(
+            sets,
+            weights,
+            observables,
+            n_draws=min(pooled.n_draws, other._marginalised.provenance.n_draws),
+            seed=int(pooled.seed or 0),
+            method=pooled.method,
+        )
+
+        return EnsembleFit(
+            sets=sets,
+            weights=weights,
+            grid=self._grid,
+            observables=observables,
+            marginalised=marginalised,
+        )
+
     # ---------------------------------------------------------
 
     def __len__(self) -> int:
@@ -528,7 +620,9 @@ class MethodEnsemble:
 
         grid_array = np.asarray(fits[0][names[0]].z, dtype=float)
 
-        marginalised = self._pool(sets, weights, names, n_draws, seed)
+        marginalised = _pool(
+            sets, weights, names, n_draws=n_draws, seed=seed, method=self.describe()
+        )
 
         return EnsembleFit(
             sets=sets,
@@ -571,128 +665,133 @@ class MethodEnsemble:
 
         return dict(zip(self.names, weights.tolist(), strict=True))
 
-    def _pool(
-        self,
-        sets: dict[str, "ReconstructionSet"],
-        weights: dict[str, float],
-        observables: tuple[str, ...],
-        n_draws: int,
-        seed: int,
-    ) -> "ReconstructionSet":
-        """
-        Build the method-marginalised posterior.
-
-        Each member contributes a share of the pooled draws proportional to
-        its weight, sampled without replacement from its own so that no
-        realisation appears twice.
-
-        The ``(member, realisation)`` assignment is chosen **once** and applied
-        to every observable. That is what keeps a joint fit's observables
-        aligned across the mixture: draw ``k`` of the pooled ``D_M/r_d`` and
-        draw ``k`` of the pooled ``D_H/r_d`` are the same realisation of the
-        same member, so their correlation survives pooling exactly as it
-        survived the fit. Assigning them separately would destroy it and
-        nothing downstream would notice.
-
-        The pooled curves keep a predictor -- they dispatch per draw to the
-        member that produced them -- so the mixture is regriddable and
-        differentiable rather than a fixed table of numbers.
-        """
-
-        rng = np.random.default_rng([seed, 0xC05E])
-
-        names = list(sets)
-
-        shares = np.array([weights[name] for name in names], dtype=float)
-
-        counts = np.floor(shares * n_draws).astype(int)
-
-        # Hand the rounding remainder to the heaviest members, so the pooled
-        # size is exactly what was asked for.
-        for index in np.argsort(-shares)[: n_draws - int(counts.sum())]:
-            counts[index] += 1
-
-        member_of_draw = np.concatenate(
-            [np.full(count, index) for index, count in enumerate(counts)]
-        )
-
-        available = [sets[name][observables[0]].n_draws for name in names]
-
-        row_of_draw = np.concatenate([
-            rng.choice(size, size=count, replace=False)
-            if count <= size
-            else rng.integers(0, size, size=count)
-            for size, count in zip(available, counts, strict=True)
-        ])
-
-        origin = new_origin()
-
-        members = {}
-
-        for observable in observables:
-
-            curves = [sets[name][observable] for name in names]
-
-            provenance = Provenance(
-                method=self.describe(),
-                data=curves[0].provenance.data,
-                hyperparameters={
-                    "members": names,
-                    "weights": {n: float(weights[n]) for n in names},
-                },
-                seed=seed,
-                n_draws=int(member_of_draw.size),
-                parents=tuple(curve.provenance for curve in curves),
-            )
-
-            predictors = [curve._predictor for curve in curves]
-
-            if any(predictor is None for predictor in predictors):
-
-                # Some member holds draws rather than a function. The mixture
-                # then can only do the same, and says so through the usual
-                # channel.
-                draws = np.concatenate([
-                    curve.draws[row_of_draw[member_of_draw == index]]
-                    for index, curve in enumerate(curves)
-                ])
-
-                members[observable] = Reconstruction.from_draws(
-                    curves[0].z,
-                    draws,
-                    provenance=provenance,
-                    origin=origin,
-                    label=observable,
-                    unit=curves[0].unit,
-                )
-
-            else:
-
-                members[observable] = Reconstruction.from_predictor(
-                    curves[0].z,
-                    _MixturePaths(predictors, names, member_of_draw, row_of_draw),
-                    provenance=provenance,
-                    origin=origin,
-                    label=observable,
-                    unit=curves[0].unit,
-                )
-
-        first = sets[names[0]]
-
-        return ReconstructionSet(
-            members,
-            origin=origin,
-            support=first.support,
-            provenance=Provenance(
-                method=self.describe(),
-                data=first.provenance.data,
-                seed=seed,
-                n_draws=int(member_of_draw.size),
-            ),
-        )
-
     # ---------------------------------------------------------
 
     def __repr__(self) -> str:
 
         return f"<MethodEnsemble {self.names} ({self.weighting}-weighted)>"
+
+
+# ============================================================
+# Pooling
+# ============================================================
+
+def _pool(
+    sets: dict[str, "ReconstructionSet"],
+    weights: dict[str, float],
+    observables: tuple[str, ...],
+    *,
+    n_draws: int,
+    seed: int,
+    method: str,
+) -> "ReconstructionSet":
+    """
+    Build the method-marginalised posterior.
+
+    Each member contributes a share of the pooled draws proportional to its
+    weight, sampled without replacement from its own so that no realisation
+    appears twice.
+
+    The ``(member, realisation)`` assignment is chosen **once** and applied to
+    every observable. That is what keeps a joint fit's observables aligned
+    across the mixture: draw ``k`` of the pooled ``D_M/r_d`` and draw ``k`` of
+    the pooled ``D_H/r_d`` are the same realisation of the same member, so
+    their correlation survives pooling exactly as it survived the fit.
+    Assigning them separately would destroy it and nothing downstream would
+    notice.
+
+    The pooled curves keep a predictor -- they dispatch per draw to the member
+    that produced them -- so the mixture is regriddable and differentiable
+    rather than a fixed table of numbers.
+    """
+
+    rng = np.random.default_rng([seed, 0xC05E])
+
+    names = list(sets)
+
+    shares = np.array([weights[name] for name in names], dtype=float)
+
+    counts = np.floor(shares * n_draws).astype(int)
+
+    # Hand the rounding remainder to the heaviest members, so the pooled size
+    # is exactly what was asked for.
+    for index in np.argsort(-shares)[: n_draws - int(counts.sum())]:
+        counts[index] += 1
+
+    member_of_draw = np.concatenate(
+        [np.full(count, index) for index, count in enumerate(counts)]
+    )
+
+    available = [sets[name][observables[0]].n_draws for name in names]
+
+    row_of_draw = np.concatenate([
+        rng.choice(size, size=count, replace=False)
+        if count <= size
+        else rng.integers(0, size, size=count)
+        for size, count in zip(available, counts, strict=True)
+    ])
+
+    origin = new_origin()
+
+    members = {}
+
+    for observable in observables:
+
+        curves = [sets[name][observable] for name in names]
+
+        provenance = Provenance(
+            method=method,
+            data=curves[0].provenance.datasets(),
+            hyperparameters={
+                "members": names,
+                "weights": {n: float(weights[n]) for n in names},
+            },
+            seed=seed,
+            n_draws=int(member_of_draw.size),
+            parents=tuple(curve.provenance for curve in curves),
+        )
+
+        predictors = [curve._predictor for curve in curves]
+
+        if any(predictor is None for predictor in predictors):
+
+            # Some member holds draws rather than a function. The mixture then
+            # can only do the same, and says so through the usual channel.
+            draws = np.concatenate([
+                curve.draws[row_of_draw[member_of_draw == index]]
+                for index, curve in enumerate(curves)
+            ])
+
+            members[observable] = Reconstruction.from_draws(
+                curves[0].z,
+                draws,
+                provenance=provenance,
+                origin=origin,
+                label=observable,
+                unit=curves[0].unit,
+            )
+
+        else:
+
+            members[observable] = Reconstruction.from_predictor(
+                curves[0].z,
+                _MixturePaths(predictors, names, member_of_draw, row_of_draw),
+                provenance=provenance,
+                origin=origin,
+                label=observable,
+                unit=curves[0].unit,
+            )
+
+    first = sets[names[0]]
+
+    return ReconstructionSet(
+        members,
+        origin=origin,
+        support=first.support,
+        provenance=Provenance(
+            method=method,
+            data=first.provenance.datasets(),
+            seed=seed,
+            n_draws=int(member_of_draw.size),
+        ),
+    )

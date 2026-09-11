@@ -57,10 +57,12 @@ from CosmoRecon.reconstructors import (
     ReconstructionSet,
     Reconstructor,
     SquaredExponential,
+    combine_independent,
 )
 
 from CosmoRecon.consistency import (
     Curvature,
+    Duality,
     NullTest,
     Om,
     Om3,
@@ -89,12 +91,14 @@ __all__ = [
     # contracts
     "Reconstructor",
     "ReconstructionSet",
+    "combine_independent",
     "NullTest",
     "TestResult",
     "significance",
     "Om",
     "Om3",
     "Curvature",
+    "Duality",
     "MethodEnsemble",
     "VarianceBudget",
     # grids

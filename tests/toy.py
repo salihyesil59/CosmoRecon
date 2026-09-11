@@ -304,6 +304,128 @@ class CurvedFLRW:
         return predictor
 
 
+class DistanceDuality:
+    """
+    The reduced distance modulus and ``D_M/r_d`` of a flat LCDM universe, with
+    an optional cosmic opacity.
+
+    ``d_L = (1 + z)^(1 + epsilon) D_M``, so ``epsilon = 0`` satisfies the
+    Etherington relation exactly and anything else violates it in the
+    power-law form the opacity slope measures. The supernova side carries a
+    zero point ``offset`` in magnitudes and the BAO side is a ratio to ``rd``
+    -- the two calibrations the statistic has to manage without.
+
+    The reduced modulus ``mu - 5 log10 z`` is built from ``D_M / z``, whose
+    limit at the origin is ``c / H0``, so there is no singularity for the toy
+    to interpolate across -- the same property that makes the reduced modulus
+    the right thing to reconstruct.
+    """
+
+    C_KM_S = 299792.458
+
+    def __init__(self, Om=0.30, H0=70.0, rd=147.0, epsilon=0.0, offset=0.0,
+                 n_draws=400, sigma_Om=1e-9, sigma_H0=1e-9, sigma_offset=0.0,
+                 seed=0):
+
+        rng = np.random.default_rng(seed)
+
+        self.Om = rng.normal(Om, sigma_Om, n_draws)
+        self.H0 = rng.normal(H0, sigma_H0, n_draws)
+
+        # A supernova posterior's level is uncertain, and when sigma_offset is
+        # set the toy's is too -- one zero point per realisation.
+        self.offsets = offset + sigma_offset * rng.standard_normal(n_draws)
+
+        self.rd = float(rd)
+        self.offset = float(offset)
+        self.epsilon = float(epsilon)
+
+        self._z = np.linspace(0.0, 3.0, 6001)
+
+        E = np.sqrt(
+            self.Om[:, None] * (1 + self._z) ** 3 + (1 - self.Om)[:, None]
+        )
+
+        chi = np.concatenate(
+            [np.zeros((n_draws, 1)),
+             np.cumsum(0.5 * (1 / E[:, 1:] + 1 / E[:, :-1]) * np.diff(self._z), axis=1)],
+            axis=1,
+        )
+
+        hubble = self.C_KM_S / self.H0[:, None]
+
+        distance = hubble * chi
+
+        self._T = distance / self.rd
+
+        per_redshift = np.empty_like(distance)
+        per_redshift[:, 1:] = distance[:, 1:] / self._z[1:]
+        per_redshift[:, 0] = hubble[:, 0]
+
+        self._m = (
+            5.0 * np.log10((1 + self._z) ** (1 + self.epsilon) * per_redshift)
+            + 25.0
+            + self.offsets[:, None]
+        )
+
+    @property
+    def calibration(self) -> float:
+        """``rd 10^(offset / 5)``, the constant that turns the statistic into eta."""
+
+        return self.rd * 10.0 ** (self.offset / 5.0)
+
+    def _interp(self, table, z):
+
+        z = np.atleast_1d(np.asarray(z, dtype=float))
+
+        return np.stack([np.interp(z, self._z, row) for row in table])
+
+    def _predictor(self, table):
+
+        def predictor(z, *, derivative=0):
+
+            if derivative == 0:
+                return self._interp(table, z)
+
+            raise DerivativeUnavailableError("toy provides order 0")
+
+        return predictor
+
+    def modulus(self):
+        """A predictor for the reduced modulus ``mu - 5 log10 z``."""
+
+        return self._predictor(self._m)
+
+    def transverse(self):
+        """A predictor for ``D_M / r_d``."""
+
+        return self._predictor(self._T)
+
+
+def duality_pair(universe, z, method="toy duality"):
+    """
+    The reduced modulus and ``D_M/r_d`` from one universe's draws, as one fit:
+    same origin, so the statistic is exact draw by draw.
+    """
+
+    origin = new_origin()
+
+    provenance = Provenance(
+        method=method, data=("mock SN+BAO",), seed=0,
+        n_draws=universe.H0.size,
+    )
+
+    def wrap(predictor, label):
+        return Reconstruction.from_predictor(
+            z, predictor, provenance=provenance, origin=origin, label=label
+        )
+
+    return (
+        wrap(universe.modulus(), "mu_reduced"),
+        wrap(universe.transverse(), "DM_over_rs"),
+    )
+
+
 def bao_pair(universe, z, method="toy FLRW"):
     """
     The two BAO observables as one aligned pair, as a joint fit would give

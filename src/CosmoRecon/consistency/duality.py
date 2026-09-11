@@ -94,8 +94,9 @@ about this test. Under an exactly true null the constancy test should exceed
 2 sigma about 5% of the time. A Gaussian process never does, because modes its
 prior still dominates are counted as degrees of freedom and dilute the
 chi-square; a series with its order left free does so in half the
-realisations, because its posterior is narrower than its error. Only a pinned
-low-order series came out close to nominal.
+realisations, because under the null it is biased by more than its posterior
+width -- measured against the true sampling covariance, the bias alone accounts
+for the excess. Only a pinned low-order series came out close to nominal.
 
 The opacity slope, a single number, shows the failures more plainly and the
 remedy with them. On those mocks, where ``epsilon = 0``, a Chebyshev series in
@@ -103,7 +104,10 @@ remedy with them. On those mocks, where ``epsilon = 0``, a Chebyshev series in
 (``+0.75``). Single methods exceed 2 sigma in 20 to 58 per cent of
 realisations. The method-marginalised slope exceeded it in none of twelve. The
 per-method spread :mod:`CosmoRecon.ensemble` reports is therefore not
-decoration here -- it is the only protection against both failures at once.
+decoration here. It is the first protection against both failures. The second
+is :func:`CosmoRecon.validation.calibrate`, which reruns the whole analysis on
+universes where duality holds and reports the significance those universes
+imply.
 """
 
 from __future__ import annotations

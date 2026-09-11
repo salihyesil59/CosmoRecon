@@ -39,6 +39,7 @@ from CosmoRecon.core import (
     DerivativeUnavailableError,
     ExtrapolationWarning,
     GridMismatchError,
+    NotRefittableError,
     NotResamplableError,
     Provenance,
     Reconstruction,
@@ -72,6 +73,8 @@ from CosmoRecon.consistency import (
 
 from CosmoRecon.ensemble import MethodEnsemble, VarianceBudget
 
+from CosmoRecon.validation import LambdaCDM, calibrate
+
 
 __version__ = "0.1.0.dev0"
 
@@ -101,6 +104,9 @@ __all__ = [
     "Duality",
     "MethodEnsemble",
     "VarianceBudget",
+    # calibration
+    "calibrate",
+    "LambdaCDM",
     # grids
     "linear_grid",
     "log_grid",
@@ -115,5 +121,6 @@ __all__ = [
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",
+    "NotRefittableError",
     "ExtrapolationWarning",
 ]

@@ -24,6 +24,7 @@ from CosmoRecon.core.errors import (
     EvidenceUnavailableError,
     GridMismatchError,
     InsufficientDrawsError,
+    NotRefittableError,
     NotResamplableError,
     OptionalDependencyError,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",
+    "NotRefittableError",
     "EvidenceUnavailableError",
     "InsufficientDrawsError",
     "DataError",

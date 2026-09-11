@@ -19,6 +19,7 @@ __all__ = [
     "GridMismatchError",
     "DerivativeUnavailableError",
     "NotResamplableError",
+    "NotRefittableError",
     "EvidenceUnavailableError",
     "InsufficientDrawsError",
     "DataError",
@@ -86,6 +87,18 @@ class NotResamplableError(CosmoReconError):
     predictor: ``H**2 * D.d(1)**2`` cannot be re-evaluated at a new redshift
     because the operation was applied to samples, not to functions. Move the
     ``at()`` call to the *operands*, before the arithmetic.
+    """
+
+
+class NotRefittableError(CosmoReconError):
+    """
+    A result was asked to rerun its analysis on new data and does not know how.
+
+    A fit remembers the method, the data and the grid it came from, so that a
+    significance can be calibrated by rerunning exactly the same analysis on
+    simulated data. Something built outside a fit -- a reconstruction wrapped
+    around a hand-written predictor, or a set assembled by hand -- has no
+    analysis to rerun, and its significance can only be the nominal one.
     """
 
 

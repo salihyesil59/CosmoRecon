@@ -132,6 +132,12 @@ And the exact ΛCDM row is not a rounding: `Om(z)` there is constant to machine
 precision, so after projecting out the constant there is no resolved direction
 left and the routine says so instead of dividing by rounding error.
 
+These are exact posteriors injected directly, with no reconstruction between
+the truth and the statistic, which is why the nominal chi-square is the right
+number here. Once a method is fitted to data, its bias and the width of its
+prior enter the statistic, and the number to quote is the calibrated one
+described under [Significance, calibrated](#significance-calibrated).
+
 ### And the method itself is measured
 
 With more than one method implemented, `ensemble/` splits the answer by the law
@@ -198,11 +204,15 @@ Run `examples/02_real_data.py` to reproduce the table, and
 known truth makes the recovery checkable.
 
 The same example also runs the `Om(z)` null test on the real chronometers, and
-the answer is worth stating plainly: **0.00 σ from constant**, with `Om(z)`
-determined to about `± 0.09`. Thirty-two differential ages cannot see a
-DESI-scale deviation from a cosmological constant, and a tool that said
-otherwise would be measuring its own assumptions. Getting that answer is what
-makes the machinery worth pointing at data that can.
+the answer is worth stating plainly: nothing. Calibrated against universes in
+which a cosmological constant holds exactly (see
+[below](#significance-calibrated)), each of the five methods sits between
+**0.07 and 0.40 σ** from constant, and the method-marginalised posterior at
+**0.18 σ**. `Om3`, which needs neither `H0` nor `Omega_m`, puts every method
+between 0.01 and 0.63 σ and the mixture at 0.00 σ. Thirty-two differential ages cannot see a DESI-scale deviation from
+a cosmological constant, and a tool that said otherwise would be measuring its
+own assumptions. Getting that answer is what makes the machinery worth pointing
+at data that can.
 
 ---
 
@@ -266,23 +276,30 @@ assuming one.
 Run it on DESI DR2 with four nearly identical polynomial reconstructions of the
 same twelve numbers:
 
-| method | `Ok(z)` significance |
-|---|---|
-| Chebyshev in `ln(1+z)` | **∞** (p underflows) |
-| Chebyshev in `y` | 4.42 σ |
-| monomial in `y` | 2.09 σ |
-| Chebyshev in `y`, order 3 | 0.28 σ |
-| **method-marginalised** | **0.41 σ** |
+| method | nominal | calibrated |
+|---|---|---|
+| Chebyshev in `ln(1+z)` | **∞** (p underflows) | 0.27 σ (p = 0.79) |
+| Chebyshev in `y` | 4.42 σ | 1.60 σ (p = 0.11) |
+| monomial in `y` | 2.09 σ | 1.44 σ (p = 0.15) |
+| Chebyshev in `y`, order 3 | 0.28 σ | 0.66 σ (p = 0.51) |
+| **method-marginalised** | **0.41 σ** | **0.73 σ** (p = 0.47) |
 
-A decisive violation of the Copernican principle is available to whoever picks
-the right expansion variable, and nothing inside a single-method analysis could
-tell. The honest reading is the marginalised one: six transverse and six radial
-BAO measurements, one of which has to be *differentiated*, do not constrain
-`Ok(z)`. **This dataset cannot answer the question, and saying so is the
-result.**
+Read the nominal column alone and a decisive violation of the Copernican
+principle is available to whoever picks the right expansion variable, with
+nothing inside a single-method analysis to tell. The calibrated column is what
+the same four analyses do when rerun on 300 FLRW universes fitted to the same
+twelve numbers. The "infinite" detection comes out at 0.27 σ, because that
+series produces statistics as extreme as the data's in most universes where
+FLRW holds exactly. No method rejects FLRW, and neither does the mixture.
 
-That is what the library is for. It is a test in the suite, and
-`examples/02_real_data.py` prints the table.
+The honest reading was always that six transverse and six radial BAO
+measurements, one of which has to be *differentiated*, do not constrain
+`Ok(z)`. Calibration turns that from a judgement into a measurement. **This
+dataset cannot answer the question, and saying so is the result.**
+
+That is what the library is for. The nominal table is a test in the suite and
+`examples/02_real_data.py` prints it; `examples/03_calibrated_significance.py`
+prints the calibrated one.
 
 ### Distance duality, and what not to reconstruct
 
@@ -313,19 +330,29 @@ covariance unchanged, and `Duality` refuses a reconstruction of `mu`.
 
 On the real Union3 and DESI DR2 data:
 
-| method | opacity slope `ε` |
-|---|---|
-| Chebyshev in `ln(1+z)` | **+0.147 ± 0.031** (4.8 σ) |
-| Chebyshev in `y` | **−0.071 ± 0.026** (2.7 σ) |
-| Gaussian process (Matérn) | −0.092 ± 0.092 (1.0 σ) |
-| Chebyshev in `y`, order 3 | −0.045 ± 0.072 (0.6 σ) |
-| **method-marginalised** | **−0.012 ± 0.111** (0.1 σ) |
+| method | opacity slope `ε` | nominal | calibrated |
+|---|---|---|---|
+| Chebyshev in `ln(1+z)` | **+0.147 ± 0.031** | 4.8 σ | 0.52 σ (p = 0.61) |
+| Chebyshev in `y` | **−0.071 ± 0.026** | 2.7 σ | 1.52 σ (p = 0.13) |
+| Gaussian process (Matérn) | −0.092 ± 0.092 | 1.0 σ | not calibrated¹ |
+| Chebyshev in `y`, order 3 | −0.045 ± 0.072 | 0.6 σ | 0.60 σ (p = 0.55) |
+| **method-marginalised** | **−0.012 ± 0.111** | 0.1 σ | **0.20 σ** (p = 0.84) |
+
+¹ Its slope is undefined in more than 5% of transparent universes, because its
+BAO posterior reaches zero inside the data gap. The calibration says so and
+leaves that member out, rather than calibrating on the universes where it
+happens to work.
 
 Two nearly identical methods report a cosmic opacity **of opposite sign**, each
-beyond 2.5 σ, and either result would have made a paper. Marginalised over the
-method, the slope is consistent with a transparent universe and about four
-times wider than either single-method number. That width is the uncertainty
-these 28 numbers actually leave.
+beyond 2.5 σ, and either result would have made a paper. Calibrated against 300
+transparent universes fitted to the same 28 numbers, neither is significant.
+Marginalised over the method, the slope is consistent with a transparent
+universe and about four times wider than either single-method number. That
+width is the uncertainty these 28 numbers actually leave.
+
+The constancy of `η(z)` itself tells the same story. The two free-order series
+report 4.50 σ and 2.60 σ nominally, and 0.18 σ and 1.65 σ calibrated; the
+mixture comes out at 1.41 σ. No method rejects distance duality.
 
 **The mocks say the same thing, and say why.** In the twelve duality-exact
 universes the biases have a direction. The series in `y` leans negative, with
@@ -337,24 +364,52 @@ exceeds 2 σ in 3 of 12 realisations for each series in `y` and in 7 of 12 for
 two, where its BAO posterior reaches zero inside the data gap. **The
 method-marginalised slope exceeds 2 σ in none of the twelve.**
 
-**And a finding about the significance itself.** The same mocks measure how
-often the constancy test exceeds 2 σ when its null is exactly true. The nominal
-rate is about 5%. Measured:
+### Significance, calibrated
 
-| method | rate |
-|---|---|
-| Gaussian process | 0 of 12 |
-| Chebyshev in `y`, order free | 6 of 12 |
-| Chebyshev in `ln(1+z)`, order free | 12 of 12 |
-| Chebyshev in `y`, order 3 | 0 of 12 |
+Every "nominal" number above is a chi-square of a statistic's posterior mean
+against its posterior covariance. On mock surveys where the null holds
+*exactly*, it is wrong in both directions:
 
-The chi-square counts as degrees of freedom modes that a Gaussian process's
-prior still dominates, which dilutes it. A free-order series has a posterior
-narrower than its error. So the real data's marginalised constancy number, 0.00 σ,
-is not evidence of anything. The slope, a single number with a width, is the
-cleaner statement, and its mixture is the only test here that stayed within
-2 σ on every mock. Calibrating significances against simulation is the next
-item on the roadmap.
+| analysis, null exactly true | nominally beyond p = 0.05 | calibrated |
+|---|---|---|
+| Om, Chebyshev in `y` | 80% of realisations | 5% |
+| distance duality, Chebyshev in `ln(1+z)` | 97% | 2% |
+| distance duality, Chebyshev in `y` | 53% | 2% |
+| curvature, Chebyshev in `y` | 90% | 5% |
+| curvature, Chebyshev in `y`, order 3 | 13% | 8% |
+| Om, Gaussian process (Matérn) | 0% | 0% |
+| distance duality, Gaussian process (Matérn) | 0% | 6% |
+
+A Gaussian process fails the other way. Its posterior is wider than its own
+sampling error by factors of a hundred and more in the directions its prior
+dominates, those directions dilute the chi-square, and nominally it almost
+never rejects anything. The free-order series are the more dangerous case:
+under a true null they are **biased** by two to four of their own standard
+deviations, and the chi-square reads that bias as a detection. Bias is not
+variance, so no better covariance repairs it.
+
+`validation.calibrate` repairs it by asking the question a p-value is meant to
+answer. A null model is fitted to the same data: flat ΛCDM for Om, ΛCDM with
+curvature for the curvature test, ΛCDM distances for duality. Mock datasets are
+drawn from its parameter posterior with the released covariances, and the whole
+analysis is rerun on each. The data are then ranked among the mocks by their
+distance from **the mocks' own mean, in the mocks' own covariance**, so the
+method's bias at the null is subtracted instead of being reported.
+
+Validated on twenty to sixty realisations per analysis, it rejects a true null at the
+nominal rate (table above), and it keeps its power. A `w = −0.6` universe
+observed with a tenth of the chronometers' errors, a non-centrality of 44
+against the best-fitting ΛCDM, is detected in 90–100% of realisations.
+Ranking by the nominal chi-square instead detected 0–15%.
+
+It also says when the data cannot answer. At the *real* chronometer errors the
+same universe is a non-centrality of 0.44 from ΛCDM, which no test can see. A
+third-order series reports it nominally at 4.7 σ; calibrated, it is
+consistent.
+
+The price is stated with the result. The significance is the significance at
+the fitted null model, whose parameters travel with it, and `n` mocks cannot
+report a p-value below `1/(n+1)`.
 
 ---
 
@@ -416,10 +471,11 @@ bundled; they are reachable through the optional CosmoFit bridge.
 - [x] **`consistency/duality.py`.** Etherington distance duality and the
       opacity slope, across two datasets with the independence declared, and
       the supernovae reconstructed in a form that does not invent a violation.
-- [ ] **Significance calibration.** The null tests' chi-square, measured
-      against mocks where the null is exactly true, is too conservative for a
-      Gaussian process and too eager for a free-order series. Calibrate it by
-      simulation, and re-measure every published number under the fix.
+- [x] **Significance calibration.** `validation/nulls.py` and
+      `validation/calibration.py`: every null test can be calibrated against
+      mocks of a null model fitted to the same data, with the whole analysis
+      rerun on each, and ranked so that a method's own bias under the null is
+      subtracted rather than reported as a detection.
 - [ ] **`consistency/`, the rest.** Litmus, growth–geometry, isotropy.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
@@ -450,7 +506,7 @@ path itself:
 python -m pytest
 ```
 
-229 tests, all of which run in about two and a half minutes.
+243 tests, all of which run in about two minutes.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

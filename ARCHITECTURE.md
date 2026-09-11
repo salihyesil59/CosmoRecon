@@ -422,6 +422,45 @@ reconstructor must earn its place:
   Chebyshev against Taylor inside the radius of convergence; the whole chain
   against a `Reconstruction` built analytically from a known cosmology.
 
+### Calibrating a null test
+
+The coverage rule has a counterpart for null tests: **a test that reports
+`p = 0.05` must be wrong 5% of the time when the null is true.** The nominal
+chi-square in `consistency.significance` fails it in both directions, and the
+diagnosis matters because it decides the repair.
+
+- A Gaussian process's posterior variance exceeds the variance of its posterior
+  mean across data realisations by a median factor of 120 to 1400 in the
+  directions its prior dominates. Those directions are counted as degrees of
+  freedom, and the test almost never rejects.
+- A free-order series is **biased** under the null, by two to four of its own
+  standard deviations in some directions. Given the *true* sampling covariance,
+  measured over 300 independent mocks, the bias alone takes it from 6–9% false
+  positives to 64–100%. A bootstrap estimate of the sampling covariance around
+  the fit fixes neither problem, because bias is not variance.
+
+`validation.calibrate` therefore has two parts.
+
+1. **The reference distribution.** A null model (`validation.nulls`) is fitted
+   to the same data. Mocks are drawn from its parameter posterior with the
+   released covariances, the whole analysis is rerun on each through `refit`,
+   and the p-value is read off where the data fall among the mocks.
+2. **The ordering.** Something has to rank realisations, and the nominal
+   chi-square must not. Its largest terms sit where the posterior is narrowest,
+   which for a biased method is where the bias lives. Used as the ordering, it
+   gives the right size and almost no power: 0–15% detection of a `w = −0.6`
+   universe whose oracle non-centrality against the best-fitting ΛCDM is 44.
+   The ordering used instead is the Mahalanobis distance from **the null mocks'
+   own mean, in their own covariance**, with each mock scored leave-one-out.
+   The mean removes the method's bias at the null, and the covariance weighs
+   each direction by how much the estimate actually moves. On the same
+   universes it gives 90–100% detection and 0–5% false positives.
+
+The model dependence is stated rather than hidden: a calibrated significance is
+the significance at the fitted null model, and the result carries that model's
+name and parameters. The floor is stated too: `n` mocks cannot report a p-value
+below `1/(n+1)`, and a result at the floor is a bound.
+
 ---
 
 ## 10. What this library deliberately does not do

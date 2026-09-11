@@ -31,6 +31,7 @@ happens to define one.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
@@ -39,7 +40,11 @@ from scipy.special import logsumexp
 
 from CosmoRecon.typing import Array, Redshift
 
-from CosmoRecon.core.errors import CosmoReconError, GridMismatchError
+from CosmoRecon.core.errors import (
+    CosmoReconError,
+    GridMismatchError,
+    NotRefittableError,
+)
 from CosmoRecon.core.provenance import Provenance, new_origin
 from CosmoRecon.core.reconstruction import Reconstruction
 
@@ -51,6 +56,7 @@ from CosmoRecon.reconstructors.base import (
     DEFAULT_N_DRAWS,
     ReconstructionSet,
     Reconstructor,
+    _only,
     combine_independent,
 )
 
@@ -225,7 +231,15 @@ class EnsembleFit:
     aligned across the mixture as they were within each member.
     """
 
-    __slots__ = ("_sets", "_weights", "_grid", "_observables", "_marginalised")
+    __slots__ = (
+        "_sets",
+        "_weights",
+        "_grid",
+        "_observables",
+        "_marginalised",
+        "_recipe",
+        "_datasets",
+    )
 
     def __init__(
         self,
@@ -234,6 +248,8 @@ class EnsembleFit:
         grid: Array,
         observables: tuple[str, ...],
         marginalised: "ReconstructionSet",
+        recipe: Callable[[tuple, int | None], "EnsembleFit"] | None = None,
+        datasets: tuple | None = None,
     ) -> None:
 
         self._sets = dict(sets)
@@ -241,6 +257,49 @@ class EnsembleFit:
         self._grid = grid
         self._observables = observables
         self._marginalised = marginalised
+        self._recipe = recipe
+        self._datasets = None if datasets is None else tuple(datasets)
+
+    # ---------------------------------------------------------
+
+    @property
+    def datasets(self) -> tuple | None:
+        """The datasets every member was fitted to, in :meth:`refit` order."""
+
+        return self._datasets
+
+    @property
+    def refittable(self) -> bool:
+
+        return self._recipe is not None
+
+    def refit(self, datasets, *, seed: int | None = None) -> "EnsembleFit":
+        """
+        Every member, fitted to different data exactly as it was fitted to
+        these, and pooled the same way.
+
+        See :meth:`~CosmoRecon.reconstructors.base.ReconstructionSet.refit`;
+        this is its ensemble counterpart, and what a calibrated significance
+        for each member and for the mixture is computed from.
+        """
+
+        if self._recipe is None:
+
+            raise NotRefittableError(
+                "This ensemble fit was assembled by hand rather than produced "
+                "by MethodEnsemble.fit, so there is no analysis to rerun."
+            )
+
+        datasets = tuple(datasets) if isinstance(datasets, (list, tuple)) else (datasets,)
+
+        if len(datasets) != len(self._datasets):
+
+            raise ValueError(
+                f"This ensemble was fitted to {len(self._datasets)} dataset(s) "
+                f"and was handed {len(datasets)} to refit."
+            )
+
+        return self._recipe(datasets, seed)
 
     # ---------------------------------------------------------
 
@@ -462,12 +521,29 @@ class EnsembleFit:
             method=pooled.method,
         )
 
+        recipe = None
+
+        datasets = None
+
+        if self.refittable and other.refittable:
+
+            split = len(self._datasets)
+
+            datasets = self._datasets + other._datasets
+
+            def recipe(new, seed):
+                return self.refit(new[:split], seed=seed).with_independent(
+                    other.refit(new[split:], seed=None if seed is None else seed + 7919)
+                )
+
         return EnsembleFit(
             sets=sets,
             weights=weights,
             grid=self._grid,
             observables=observables,
             marginalised=marginalised,
+            recipe=recipe,
+            datasets=datasets,
         )
 
     # ---------------------------------------------------------
@@ -587,6 +663,10 @@ class MethodEnsemble:
         if seed is None:
             seed = int(np.random.SeedSequence().entropy % (2**31))
 
+        # Taken before any member is fitted, for the same reason as in
+        # Reconstructor.fit: a refit is this configuration, not a later one.
+        template = copy.deepcopy(self)
+
         fits = []
 
         for name, member in zip(self.names, self.members, strict=True):
@@ -624,12 +704,26 @@ class MethodEnsemble:
             sets, weights, names, n_draws=n_draws, seed=seed, method=self.describe()
         )
 
+        if isinstance(data, (list, tuple)):
+            datasets = tuple(data)
+            wrap = list
+        else:
+            datasets = (data,)
+            wrap = _only
+
+        def recipe(new_datasets, new_seed):
+            return copy.deepcopy(template).fit(
+                wrap(new_datasets), grid=grid_array, n_draws=n_draws, seed=new_seed
+            )
+
         return EnsembleFit(
             sets=sets,
             weights=weights,
             grid=grid_array,
             observables=names,
             marginalised=marginalised,
+            recipe=recipe,
+            datasets=datasets,
         )
 
     # ---------------------------------------------------------

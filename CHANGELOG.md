@@ -296,8 +296,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     constancy test should exceed 2 sigma about 5% of the time under a true
     null. It does so in 0 of 12 realisations for a Gaussian process, whose
     prior-dominated modes are counted as degrees of freedom, and in 6 to 12 of
-    12 for a series with its order free, whose posterior is narrower than its
-    error. Recorded as open work rather than patched here.
+    12 for a series with its order free. The series' excess turned out to be
+    bias under the null rather than too narrow a posterior. Both are repaired
+    by `validation.calibrate`, below.
 
 - **`data.reduced_modulus`** — `mu - 5 log10 z`, the supernova distance
   modulus with its singularity at the origin removed. Exact, covariance
@@ -320,6 +321,104 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   observables, rather than a product of two mixtures that would mostly pair a
   Gaussian process with a polynomial. Weights multiply. `MethodEnsemble`'s
   pooling moved to a module function so that both routes share it.
+
+- **`ReconstructionSet.refit` and `EnsembleFit.refit`** — a fit remembers how it
+  was made, so the same analysis can be rerun on different data: the method as
+  configured at fit time (a copy, so nothing done to the instance afterwards
+  leaks in), the datasets, the grid and the draw count. Refitting the original
+  data with the original seed reproduces the original draws exactly.
+  `combine_independent`, `with_independent` and `at()` carry the recipe through,
+  so a two-dataset ensemble regridded onto a new grid still knows how to rerun
+  itself. Anything assembled by hand raises `NotRefittableError` rather than
+  pretending.
+
+- **`validation.nulls`** — null models: the smallest parametric universes in
+  which a null hypothesis holds by construction. `LambdaCDM`, flat or curved,
+  builds its parameters from the observables present — `omega_m` always,
+  `omega_k` if curved, `H0` for expansion rates, `c_over_H0_rd` for anything
+  measured against the sound horizon, `mu_offset` for distance moduli — so it
+  never carries a parameter the data cannot see. It is fitted by generalised
+  least squares against each release's own covariance, with a Laplace posterior
+  on the parameters.
+
+  - Checked against the published fits: DESI DR2 gives `Omega_m = 0.2975 ±
+    0.0086` and `r_d h = 101.56 Mpc`, Union3 `Omega_m = 0.356 ± 0.027`.
+  - `simulate` returns the dataset's own class, name, redshifts and row order
+    with only the values replaced, drawn about the prediction with the released
+    covariance, so an analysis cannot tell a mock from the release. Rows are
+    deliberately not read through `unpack_dataset`, which sorts: sorting on the
+    way in without unsorting on the way out would pair values with the wrong
+    rows of the covariance.
+
+- **`validation.calibrate`** — null-test significances calibrated by
+  simulation. Every null test in the library can now report a p-value that
+  means what it says, and each result carries the nominal number alongside.
+
+  - **Diagnosed before it was fixed.** Across 300 mock surveys per analysis
+    with the null exactly true, the nominal chi-square fails for two unrelated
+    reasons. A Gaussian process's posterior variance exceeds the sampling
+    variance of its posterior mean by a median factor of 120–1400 in the
+    directions its prior dominates, so it almost never rejects. A free-order
+    series is biased under the null by two to four of its own standard
+    deviations in some directions, and given the true sampling covariance the
+    bias alone takes it from 6–9% false positives to 64–100%. A bootstrap
+    estimate of the sampling covariance around the fit repairs neither,
+    because bias is not variance.
+  - **The reference distribution.** A null model is fitted to the same data.
+    Mocks are drawn from its parameter posterior with the released covariances,
+    and the whole analysis is rerun on each through `refit`: every member of an
+    ensemble, the mixture, and both sides of a two-dataset combination.
+  - **The ordering.** Ranking realisations by the nominal chi-square gives the
+    right size and almost no power: 0–15% detection of a `w = -0.6` universe
+    whose oracle non-centrality against the best-fitting ΛCDM is 44. Ranking by
+    the Mahalanobis distance from the null mocks' own mean, in their own
+    covariance, with each mock scored leave-one-out, subtracts the method's
+    bias at the null. On the same universes it detects 90–100%.
+  - **Validated end to end.** Up to sixty realisations per analysis, each
+    calibrated against 50–100 mocks of a null model fitted to its own data. Calibrated
+    false positives at `p < 0.05`:
+
+    | analysis | nominal | calibrated |
+    |---|---|---|
+    | Om, free-order series | 80% | 5% |
+    | duality, series in `y` | 53% | 2% |
+    | duality, series in `ln(1+z)` | 97% | 2% |
+    | curvature, third-order series | 13% | 8% |
+    | curvature, free-order series in `y` (20 realisations) | 90% | 5% |
+    | Om, Gaussian process (20 realisations) | 0% | 0% |
+    | duality, Gaussian process (16 realisations) | 0% | 6% |
+
+    The calibrated p-values average 0.40–0.68: close to uniform for the
+    Gaussian processes (0.40–0.43), slightly conservative for the series
+    (0.48–0.68).
+    Fixing the null parameters at the best fit makes no difference, since both
+    variants place the null model at the data by construction.
+  - **It says when the data cannot answer.** At the real chronometer errors,
+    `w = -0.6` is a non-centrality of 0.44 from the best-fitting ΛCDM. A
+    third-order series reports it nominally at 4.7 sigma; calibrated, it is
+    consistent. Both directions are tests.
+  - **The published numbers, calibrated.** The same analyses on the same data,
+    each against 193–300 mocks of its fitted null model:
+    - Om on the chronometers: every method between 0.07 and 0.40 sigma, the
+      mixture at 0.18. Om3: 0.01 to 0.63, the mixture at 0.00.
+    - `Ok(z)` on DESI DR2: the series in `ln(1+z)`, nominally infinite, is
+      0.27 sigma; the series in `y`, nominally 4.42, is 1.60; the mixture is
+      0.73. No method rejects FLRW.
+    - The opacity slope on Union3 and DESI DR2: the nominal 4.8 and 2.7 sigma
+      become 0.52 and 1.52. The Gaussian process is left uncalibrated, because
+      its slope is undefined in more than 5% of transparent universes. The
+      mixture is 0.20. The constancy of `eta`: 4.50 and 2.60 become 0.18 and
+      1.65, and the mixture is 1.41.
+
+    None of the nominal detections survives, and no null is rejected at
+    `p < 0.05`.
+  - A member whose statistic is undefined on more than 5% of null universes is
+    left uncalibrated, with the reason given, instead of sinking the rest of
+    the ensemble; a single statistic in that position raises. Too few
+    successful mocks for the statistic's number of redshifts also abandons the
+    calibration. The floor `1/(n_mocks + 1)` is reported as a bound.
+  - `examples/03_calibrated_significance.py` reruns example 02's analyses on
+    the same data with the same seeds and prints both numbers.
 
 ### Fixed
 
@@ -373,9 +472,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (229 tests) covering the core contract, the kernels, the GP,
+- Test suite (243 tests) covering the core contract, the kernels, the GP,
   cosmography, joint fits, the data layer, the ensemble, the Om diagnostics,
-  the curvature test and distance duality: sample paths checked against the exact GP posterior to the
+  the curvature test, distance duality and calibration by simulation: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

@@ -17,15 +17,20 @@ than a prior.
 
 from __future__ import annotations
 
+import copy
 from abc import ABC, abstractmethod
-from typing import Iterator, Mapping
+from typing import Callable, Iterator, Mapping
 
 import numpy as np
 from scipy import linalg
 
 from CosmoRecon.typing import Array, Redshift
 
-from CosmoRecon.core.errors import DataError, EvidenceUnavailableError
+from CosmoRecon.core.errors import (
+    DataError,
+    EvidenceUnavailableError,
+    NotRefittableError,
+)
 from CosmoRecon.core.grid import (
     common_support,
     linear_grid,
@@ -71,7 +76,14 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
     >>> fit.H                   # doctest: +SKIP
     """
 
-    __slots__ = ("_members", "_origin", "_support", "_provenance")
+    __slots__ = (
+        "_members",
+        "_origin",
+        "_support",
+        "_provenance",
+        "_recipe",
+        "_datasets",
+    )
 
     def __init__(
         self,
@@ -80,6 +92,8 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
         origin: Origin,
         support: tuple[float, float],
         provenance: Provenance,
+        recipe: Callable[[tuple, int | None], "ReconstructionSet"] | None = None,
+        datasets: tuple | None = None,
     ) -> None:
 
         if not members:
@@ -104,6 +118,10 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
         self._support = support
 
         self._provenance = provenance
+
+        self._recipe = recipe
+
+        self._datasets = None if datasets is None else tuple(datasets)
 
     # ---------------------------------------------------------
 
@@ -154,6 +172,54 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
 
         return self._provenance
 
+    @property
+    def datasets(self) -> tuple | None:
+        """
+        The datasets this set was fitted to, in the order :meth:`refit` takes
+        them -- or ``None`` for a set that did not come out of a fit.
+        """
+
+        return self._datasets
+
+    @property
+    def refittable(self) -> bool:
+
+        return self._recipe is not None
+
+    def refit(self, datasets, *, seed: int | None = None) -> "ReconstructionSet":
+        """
+        The same analysis -- the same method with the same settings, on the
+        same grid -- run on different data.
+
+        What calibration by simulation is built on
+        (:func:`CosmoRecon.validation.calibrate`): draw datasets in which a null
+        hypothesis holds, refit each exactly as the real data were fitted, and
+        see what the statistic does. ``datasets`` must match :attr:`datasets`
+        in number and order. The method is a copy taken at fit time, so
+        nothing done to the original reconstructor since can leak in.
+        """
+
+        if self._recipe is None:
+
+            raise NotRefittableError(
+                "This set was not produced by a fit, so there is no analysis "
+                "to rerun on new data. Fit a Reconstructor (or combine fits "
+                "with combine_independent) to get a set that remembers how it "
+                "was made."
+            )
+
+        datasets = tuple(datasets) if isinstance(datasets, (list, tuple)) else (datasets,)
+
+        if len(datasets) != len(self._datasets):
+
+            raise ValueError(
+                f"This set was fitted to {len(self._datasets)} dataset(s) and "
+                f"was handed {len(datasets)} to refit. They are matched by "
+                "position, so the count has to agree."
+            )
+
+        return self._recipe(datasets, seed)
+
     # ---------------------------------------------------------
 
     def at(self, z: Redshift) -> "ReconstructionSet":
@@ -162,13 +228,25 @@ class ReconstructionSet(Mapping[str, Reconstruction]):
 
         Alignment survives because each member's predictor is deterministic:
         see the contract on :class:`~CosmoRecon.core.reconstruction.Predictor`.
+        A refit of the result is regridded the same way.
         """
+
+        recipe = None
+
+        if self._recipe is not None:
+
+            inner = self._recipe
+
+            def recipe(datasets, seed):
+                return inner(datasets, seed).at(z)
 
         return ReconstructionSet(
             {name: r.at(z) for name, r in self._members.items()},
             origin=self._origin,
             support=self._support,
             provenance=self._provenance,
+            recipe=recipe,
+            datasets=self._datasets,
         )
 
     def __repr__(self) -> str:
@@ -341,11 +419,29 @@ def combine_independent(
         n_draws=n,
     )
 
+    recipe = None
+
+    datasets = None
+
+    if first.refittable and second.refittable:
+
+        split = len(first.datasets)
+
+        datasets = first.datasets + second.datasets
+
+        def recipe(new, seed):
+            return combine_independent(
+                first.refit(new[:split], seed=seed),
+                second.refit(new[split:], seed=None if seed is None else seed + 7919),
+            )
+
     return ReconstructionSet(
         members,
         origin=origin,
         support=support,
         provenance=provenance,
+        recipe=recipe,
+        datasets=datasets,
     )
 
 
@@ -485,6 +581,10 @@ class Reconstructor(ABC):
             n_draws=n_draws,
         )
 
+        # Taken before _fit touches any state, so a later refit is this
+        # configuration and nothing that happened to the instance afterwards.
+        template = copy.deepcopy(self)
+
         members = self._fit(
             data,
             grid=grid_array,
@@ -494,11 +594,25 @@ class Reconstructor(ABC):
             origin=origin,
         )
 
+        if isinstance(data, (list, tuple)):
+            datasets = tuple(data)
+            wrap = list
+        else:
+            datasets = (data,)
+            wrap = _only
+
+        def recipe(new_datasets, new_seed):
+            return copy.deepcopy(template).fit(
+                wrap(new_datasets), grid=grid_array, n_draws=n_draws, seed=new_seed
+            )
+
         return ReconstructionSet(
             members,
             origin=origin,
             support=support,
             provenance=provenance,
+            recipe=recipe,
+            datasets=datasets,
         )
 
     # ---------------------------------------------------------
@@ -524,6 +638,14 @@ class Reconstructor(ABC):
     def __repr__(self) -> str:
 
         return f"<{type(self).__name__}: {self.describe()}>"
+
+
+def _only(datasets: tuple):
+    """The single dataset of a one-dataset fit."""
+
+    (dataset,) = datasets
+
+    return dataset
 
 
 # ============================================================

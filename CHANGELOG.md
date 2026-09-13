@@ -420,6 +420,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `examples/03_calibrated_significance.py` reruns example 02's analyses on
     the same data with the same seeds and prints both numbers.
 
+- **`consistency.Litmus` and `consistency.CurvedLitmus`** — Zunckel &
+  Clarkson's litmus test for a cosmological constant (2008, PRL 101, 181301),
+  which needs only distances where the Om diagnostics need the expansion rate.
+
+  - Eqs. 5–7 of the paper were checked symbolically against a derivation from
+    the Friedmann equation before being implemented.
+  - **Rearranged so that it needs no calibration.** The paper's
+    `L(z) = zeta D'' + 3(1+z)^2 D'(1 - D'^2)` compares `D'^2` with 1, so it needs
+    distances normalised by `c/H0`, and neither supernovae nor BAO supply that.
+    `Q(z) = [zeta D'' + 3(1+z)^2 D'] / [3(1+z)^2 D'^3]` carries the same
+    information (`L = 3(1+z)^2 D'^3 (Q - 1)`) and is constant in flat ΛCDM
+    whatever the calibration, since a rescaled distance only rescales `Q`. A
+    constant `Q` is also exactly flat ΛCDM, and nothing else: that is the
+    solution of the differential equation it imposes. `Litmus.zunckel_clarkson`
+    returns the paper's `L(z)` when a calibration is given.
+  - Takes a distance or a reduced distance modulus. From the modulus, the
+    distance and its first two derivatives come by the chain rule from the
+    method's own analytic derivatives. A posterior whose distance stops
+    increasing somewhere on the grid is refused, because `Q` divides by
+    `D'^3` and those draws would dominate it.
+  - **Curvature fools the flat test**: `Omega_k = 0.1` with a cosmological
+    constant moves `Q` by order unity. `CurvedLitmus` removes the curvature
+    through the Clarkson–Bassett–Lu relation, using a BAO release's transverse
+    and radial distances together, and anchors at a reference redshift. The
+    result equals `Omega_m / (c/H0 r_d)^2` at every redshift in ΛCDM of any
+    curvature. It needs first derivatives only and no calibration to test
+    constancy. It assumes FLRW, which `Curvature` tests on the same pair.
+  - Exact on toy universes whose distances are integrated and differentiated
+    numerically, not built from these relations: `Q = 1` to `1e-4` from a BAO
+    distance and from a supernova modulus, and the curved statistic equals the
+    input `Omega_m` to `1e-4` at `Omega_k = -0.1, 0, +0.1`.
+  - **On real data, calibrated against 300 null universes each.**
+    - The flat test on Union3 (`z <= 1.39`): the free-order series in `y` and
+      `ln(1+z)` report 11.47 and 11.21 sigma nominally, and 0.07 and 0.11
+      calibrated; the mixture is 1.00. The squared-exponential Gaussian
+      process is refused on the data, because its distance turns over at
+      `z = 1.39` in 0.1% of its draws.
+    - The curved test on DESI DR2: the series in `ln(1+z)` reports 28.71 sigma
+      nominally and 0.33 calibrated; the series in `y` 4.11 and 1.50; the
+      mixture 0.65. With `c/(H0 r_d)` supplied, the statistic reads
+      `Omega_m = 0.26–0.30` above `z = 1`, the survey's own value.
+
 ### Fixed
 
 - **`MethodEnsemble` silently dropped every observable but one.** Handed a
@@ -472,9 +514,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (243 tests) covering the core contract, the kernels, the GP,
+- Test suite (264 tests) covering the core contract, the kernels, the GP,
   cosmography, joint fits, the data layer, the ensemble, the Om diagnostics,
-  the curvature test, distance duality and calibration by simulation: sample paths checked against the exact GP posterior to the
+  the curvature test, distance duality, the litmus tests and calibration by
+  simulation: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di
   Bruno against finite differences at three orders and against the chain rule

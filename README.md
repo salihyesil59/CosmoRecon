@@ -364,6 +364,50 @@ exceeds 2 σ in 3 of 12 realisations for each series in `y` and in 7 of 12 for
 two, where its BAO posterior reaches zero inside the data gap. **The
 method-marginalised slope exceeds 2 σ in none of the twelve.**
 
+### The litmus test for Λ, from distances alone
+
+Zunckel & Clarkson (2008) found a test of the cosmological constant that needs
+only a distance–redshift relation:
+
+```
+𝓛(z) = ζ D'' + 3(1+z)² D' (1 − D'²) = 0,     ζ = 2[(1+z)³ − 1]
+```
+
+holds in every flat ΛCDM universe, whatever `Ω_m`. As written it needs `D`
+normalised by `c/H₀`, and no distance data supply that. Rearranged as
+`Q(z) = [ζ D'' + 3(1+z)² D'] / [3(1+z)² D'³]`, with `𝓛 = 3(1+z)² D'³ (Q − 1)`,
+it is constant in flat ΛCDM whatever the calibration, and a constant `Q` is
+flat ΛCDM and nothing else. So `Litmus` tests constancy and needs no
+calibration.
+
+Curvature fools it: `Ω_k = 0.1` with a cosmological constant moves `Q` by order
+unity. `CurvedLitmus` removes the curvature through the Clarkson–Bassett–Lu
+relation, using both BAO distances, and anchors at a reference redshift. The
+result is constant in ΛCDM of any curvature, needs first derivatives only, and
+needs no calibration.
+
+On real data, each calibrated against 300 null universes:
+
+| test and data | method | nominal | calibrated |
+|---|---|---|---|
+| `Litmus`, Union3 (`z ≤ 1.39`) | Chebyshev in `y` | 11.47 σ | 0.07 σ |
+| | Chebyshev in `ln(1+z)` | 11.21 σ | 0.11 σ |
+| | Chebyshev in `y`, order 3 | 1.03 σ | 1.14 σ |
+| | **method-marginalised** | 0.10 σ | **1.00 σ** |
+| `CurvedLitmus`, DESI DR2 | Chebyshev in `ln(1+z)` | 28.71 σ | 0.33 σ |
+| | Chebyshev in `y` | 4.11 σ | 1.50 σ |
+| | monomial in `y` | 2.05 σ | 1.35 σ |
+| | Chebyshev in `y`, order 3 | 0.57 σ | 0.49 σ |
+| | **method-marginalised** | 0.61 σ | **0.65 σ** |
+
+That is two more "detections" of dynamical dark energy at over eleven sigma
+and one at nearly thirty, each from a free-order series, and each gone when the
+same analysis is rerun on universes where Λ is exactly right. The Gaussian
+process could not take part in the supernova test: its distance stops
+increasing at `z = 1.39` in 0.1% of its draws, the test divides by `D'³`, and
+the library refuses. On DESI, with `c/(H₀ r_d)` supplied, the curved statistic
+reads `Ω_m ≈ 0.26–0.30` above `z = 1`, the survey's own value.
+
 ### Significance, calibrated
 
 Every "nominal" number above is a chi-square of a statistic's posterior mean
@@ -476,7 +520,11 @@ bundled; they are reachable through the optional CosmoFit bridge.
       mocks of a null model fitted to the same data, with the whole analysis
       rerun on each, and ranked so that a method's own bias under the null is
       subtracted rather than reported as a detection.
-- [ ] **`consistency/`, the rest.** Litmus, growth–geometry, isotropy.
+- [x] **`consistency/litmus.py`.** Zunckel–Clarkson's litmus test for a
+      cosmological constant from distances alone, rearranged so that it needs
+      no calibration, and a curved version from the BAO pair that needs
+      neither a calibration nor a second derivative.
+- [ ] **`consistency/`, the rest.** Growth–geometry, isotropy.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -506,7 +554,7 @@ path itself:
 python -m pytest
 ```
 
-243 tests, all of which run in about two minutes.
+264 tests, all of which run in about two minutes.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

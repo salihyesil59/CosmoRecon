@@ -34,8 +34,14 @@ Members:
     supernovae enter as ``mu - 5 log10 z``, because a reconstruction of ``mu``
     itself invents a violation in a universe that has none.
 
-``litmus.py``
-    The ``L(z)`` litmus test for a cosmological constant.
+``litmus.py`` (done)
+    Zunckel & Clarkson's litmus test for a cosmological constant, from
+    distances alone: ``Q(z)`` is constant in flat Lambda-CDM whatever the matter
+    density and the distance calibration. Curvature fools it, so
+    ``CurvedLitmus`` builds the same test from a BAO release's transverse and
+    radial distances together, with the curvature removed through the
+    Clarkson-Bassett-Lu relation -- constant in Lambda-CDM of any curvature,
+    with first derivatives only and no calibration.
 
 ``growth.py``
     Growth-geometry consistency: does the measured ``f sigma_8`` match the
@@ -60,6 +66,8 @@ from CosmoRecon.consistency.curvature import Curvature
 
 from CosmoRecon.consistency.duality import Duality
 
+from CosmoRecon.consistency.litmus import CurvedLitmus, Litmus
+
 from CosmoRecon.consistency.om import Om, Om3
 
 
@@ -74,4 +82,6 @@ __all__ = [
     "Om3",
     "Curvature",
     "Duality",
+    "Litmus",
+    "CurvedLitmus",
 ]

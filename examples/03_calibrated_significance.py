@@ -1,7 +1,7 @@
 """
 The significances of example 02, calibrated.
 
-    python examples/03_calibrated_significance.py       # a quarter of an hour
+    python examples/03_calibrated_significance.py       # about twenty minutes
 
 Example 02 prints nominal significances: a chi-square of each statistic's
 posterior mean against its posterior covariance. On mock surveys in which the
@@ -12,7 +12,8 @@ because under the null it is biased by more than its posterior width, and the
 chi-square reads the bias as a detection.
 
 This example reruns the same analyses, on the same data, with the same seeds,
-and calibrates each with :func:`CosmoRecon.validation.calibrate`:
+adds the two litmus tests for a cosmological constant, and calibrates each with
+:func:`CosmoRecon.validation.calibrate`:
 
 1. A null model is fitted to the same data -- flat Lambda-CDM for the Om
    diagnostics, Lambda-CDM with curvature for the curvature test, Lambda-CDM
@@ -42,10 +43,12 @@ from CosmoRecon import (                                          # noqa: E402
     C_LIGHT_KM_S,
     Cosmography,
     Curvature,
+    CurvedLitmus,
     Duality,
     ExtrapolationWarning,
     GaussianProcess,
     LambdaCDM,
+    Litmus,
     MethodEnsemble,
     Om,
     Om3,
@@ -183,4 +186,79 @@ show(calibrate(
     n_mocks=300,
     seed=14,
     name="eta(z), tested for constancy",
+))
+
+
+# ============================================================
+# 4. The flat litmus test on the supernovae
+# ============================================================
+
+rule("4. Zunckel-Clarkson litmus test on Union3, calibrated")
+
+# Q(z) is constant in flat Lambda-CDM whatever Omega_m and whatever the
+# supernova zero point, and it needs only distances -- at the price of a second
+# derivative. The grid stops at the last densely sampled bin, z = 1.39: beyond
+# it Union3 has one point, at 2.26, and nothing constrains a second derivative.
+#
+# The squared-exponential Gaussian process is not a member. Its distance stops
+# increasing at z = 1.39 in a tenth of a per cent of its draws, the test divides
+# by D'^3, and the library refuses rather than letting those draws decide.
+
+sn_litmus = MethodEnsemble([
+    Cosmography("y"),
+    Cosmography("y", order=3),
+    Cosmography("log"),
+]).fit(
+    reduced_modulus(union3()), grid=np.linspace(0.10, 1.39, 15), n_draws=2000, seed=21
+)
+
+show(calibrate(
+    lambda s: Litmus().statistic(s["mu_reduced"]),
+    sn_litmus,
+    1.0,
+    null=LambdaCDM(),
+    marginalise_constant=True,
+    n_mocks=300,
+    seed=22,
+    name="litmus Q(z), Union3, z <= 1.39",
+))
+
+
+# ============================================================
+# 5. The curved litmus test on DESI DR2
+# ============================================================
+
+rule("5. Curved litmus test on DESI DR2, calibrated")
+
+# The flat test cannot tell curvature from dynamical dark energy. This one
+# removes the curvature through the Clarkson-Bassett-Lu relation, using both
+# BAO distances, and is constant in Lambda-CDM of any curvature -- with first
+# derivatives only. With c / (H0 r_d) supplied, the constant is Omega_m.
+
+litmus_grid = np.linspace(0.60, 2.25, 20)
+litmus_grid = litmus_grid[np.abs(litmus_grid - 0.93) > 0.04]     # away from the anchor
+
+bao_litmus = MethodEnsemble([
+    Cosmography("y"),
+    Cosmography("log"),
+    Cosmography("y", order=3),
+    Cosmography("y", family="monomial"),
+]).fit(
+    desi_dr2_bao().select("DM_over_rs", "DH_over_rs"),
+    grid=litmus_grid,
+    n_draws=2000,
+    seed=23,
+)
+
+show(calibrate(
+    lambda s: CurvedLitmus(0.93, hubble_distance=hubble_distance).statistic(
+        s["DM_over_rs"], s["DH_over_rs"]
+    ),
+    bao_litmus,
+    0.0,
+    null=LambdaCDM(curved=True),
+    marginalise_constant=True,
+    n_mocks=300,
+    seed=24,
+    name="curved litmus O(z; 0.93), DESI DR2",
 ))

@@ -297,12 +297,14 @@ that is entirely correlation.
 | `curvature.py` ✅ | `Ok(z)` (Clarkson–Bassett–Lu) — needs the joint fit | constant, `= Omega_k` |
 | `duality.py` ✅ | Etherington `eta(z) = d_L / [(1+z) D_M]`; opacity slope `epsilon` — two datasets, independence declared | constant (`= 1` with a calibration) |
 | `litmus.py` ✅ | Zunckel–Clarkson litmus test for `Lambda` from distances alone, as `Q(z)`; `CurvedLitmus` from the BAO pair, curvature removed through Clarkson–Bassett–Lu | constant (`Q = 1` with a calibration) |
-| `growth.py` | growth–geometry consistency: does measured `f sigma_8` match the growth *implied by* the reconstructed geometry under GR? | `0` |
+| `growth.py` ✅ | growth–geometry consistency: a first integral of GR's growth equation, `a H d/dlna[a² H fσ8]`, anchored at one redshift — two datasets, independence declared; `Growth.sigma8` gives `σ8(0)` from an early-universe `Ω_m h²` | constant (`= Ω_m` with a calibration) |
 | `isotropy.py` | the cosmological principle, from BAO across the sky | `0` |
 
-`growth.py` is the S8 tension restated without a model — the tension becomes a
-statement about internal consistency rather than a disagreement between two
-ΛCDM fits.
+`growth.py` is the S8 tension restated without a late-time model. Constancy
+tests whether gravity's coupling changes with time; the value, against a
+geometric or early-universe `Ω_m`, tests a constant but non-Newtonian
+coupling; and neither sees the amplitude, which `Growth.sigma8` reads off the
+same relation once `Ω_m h²` is supplied.
 
 ### Two datasets in one test
 
@@ -316,6 +318,15 @@ at one of two scopes:
 - `Reconstruction.assume_independent()` for one curve. The claim survives
   arithmetic on its own side: `(1 + z) * D.assume_independent()` is still
   independent of whatever it meets, because it contains no data `D` did not.
+  A declared fit is permuted **once**, by a permutation fixed by the fit and
+  the draw count, and a result built only from declared fits is marked as
+  already in that order — so `(a + b) - a` is `b`. Without the mark, `(a + b) - a`
+  had the spread of three independent terms, and the growth test — whose
+  statistic meets the growth rate several times in nested arithmetic — would
+  have paired differently shuffled copies of one posterior whenever both
+  inputs were declared on their own.
+  `Reconstruction.with_draws` builds per-draw results (a slope, an integral)
+  that keep the frame.
 - `combine_independent(fit_a, fit_b)` for every function two fits produced.
   The result is an ordinary `ReconstructionSet` on one realisation index —
   the first fit's draw order kept, the second's permuted by a fixed,

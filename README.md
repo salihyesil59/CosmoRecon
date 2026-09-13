@@ -408,6 +408,55 @@ increasing at `z = 1.39` in 0.1% of its draws, the test divides by `D'³`, and
 the library refuses. On DESI, with `c/(H₀ r_d)` supplied, the curved statistic
 reads `Ω_m ≈ 0.26–0.30` above `z = 1`, the survey's own value.
 
+### Growth against geometry, under GR
+
+Every test above asks about the expansion history. This one asks about
+gravity. In general relativity, with matter the only component that clusters,
+the growth equation has a first integral
+
+```
+a H d/dlna [a² H fσ8] = (3/2) Ω_m H₀² σ8(z)
+```
+
+whatever the dark energy and whatever the curvature. `σ8(z)` is unknown, but
+its change between two redshifts is an integral of `fσ8`. Anchoring at one
+redshift removes it, and `Growth` gets a statistic that is constant at
+`Ω_m H₀²`. It needs no `σ8`, no second derivative, and no calibration to test
+constancy.
+
+It sees a gravitational coupling that **changes with time**. A coupling that is
+different from Newton's but constant only rescales the constant, and passing a
+geometric or early-universe `omega_m` catches that. Neither sees the
+amplitude. `Growth.sigma8` reads the amplitude off the same relation: given
+`Ω_m h²`, it returns `σ8` today at every redshift. That is the S8 question,
+asked without a late-time model.
+
+On Gold-2018 `fσ8` with DESI DR2 `D_H/r_d`, declared independent and
+calibrated against 300 null universes:
+
+| method | nominal | calibrated | `Ω_m h²` (Planck `r_d`) | `σ8(0)` (Planck `Ω_m h²`) |
+|---|---|---|---|---|
+| Chebyshev in `y` | 0.21 σ | 1.05 σ | 0.16–0.24 ± 0.06–0.12 | 0.63–0.71 ± 0.07–0.12 |
+| Chebyshev in `ln(1+z)` | 1.08 σ | 0.42 σ | 0.19–0.26 ± 0.07–0.09 | 0.65–0.76 ± 0.08–0.11 |
+| Chebyshev in `y`, order 3 | 0.04 σ | 0.13 σ | 0.17–0.30 ± 0.18–0.36 | 0.76–0.86 ± 0.10–0.21 |
+| monomial in `y` | 0.01 σ | 0.89 σ | 0.16–0.25 ± 0.08–0.13 | 0.63–0.71 ± 0.07–0.12 |
+| **method-marginalised** | 0.00 σ | **0.45 σ** | **0.17–0.26 ± 0.11–0.21** | **0.67–0.76 ± 0.10–0.15** |
+
+The ranges run across `z = 0.55–1.5`, and Planck's values are
+`Ω_m h² = 0.143` and `σ8 = 0.811`. Growth and geometry agree under GR. The
+growth prefers a lower amplitude than the CMB, by at most about one sigma.
+That is the direction of the S8 tension and nowhere near its significance.
+
+What the test *cannot* say matters as much. We injected a coupling
+`G_eff/G = 1 + Ω_DE(a)` into mock growth data at the real redshifts; on this
+grid it moves `G(z)` by 20%. We then ran the same calibrated analysis on six
+realisations per setting, each against 100 null universes. The coupling was
+found at p < 0.05 in 0/6 realisations at the real errors, 1/6 at a quarter of
+them, and 3/6 at a tenth. With no coupling, the rejections were 0/6, 0/6 and
+1/6. Agreement here therefore rules out little: twenty-two growth rates cannot
+see an order-unity change in gravity's strength, and the test says so rather
+than being read as a confirmation of GR.
+
 ### Significance, calibrated
 
 Every "nominal" number above is a chi-square of a statistic's posterior mean
@@ -524,7 +573,11 @@ bundled; they are reachable through the optional CosmoFit bridge.
       cosmological constant from distances alone, rearranged so that it needs
       no calibration, and a curved version from the BAO pair that needs
       neither a calibration nor a second derivative.
-- [ ] **`consistency/`, the rest.** Growth–geometry, isotropy.
+- [x] **`consistency/growth.py`.** Growth–geometry consistency under GR from
+      a first integral of the growth equation — no `σ8`, no dark-energy model,
+      no second derivative — and `σ8` today from an early-universe `Ω_m h²`.
+- [ ] **`consistency/isotropy.py`.** Needs BAO resolved across the sky, which
+      no bundled release provides.
 - [x] **`ensemble/method.py`.** `MethodEnsemble`: fits every member, pools
       their draws into a method-marginalised posterior that is itself a full
       reconstruction, and reports a null test under each method and under the
@@ -554,7 +607,7 @@ path itself:
 python -m pytest
 ```
 
-264 tests, all of which run in about two minutes.
+286 tests, all of which run in about four minutes.
 
 Requires Python ≥ 3.11. The core depends on numpy, scipy and matplotlib and
 nothing else; every heavier dependency is an optional extra, and the suite

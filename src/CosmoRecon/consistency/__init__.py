@@ -43,11 +43,14 @@ Members:
     Clarkson-Bassett-Lu relation -- constant in Lambda-CDM of any curvature,
     with first derivatives only and no calibration.
 
-``growth.py``
+``growth.py`` (done)
     Growth-geometry consistency: does the measured ``f sigma_8`` match the
-    growth implied by the reconstructed expansion history under GR? This is
-    the S8 tension asked without a model -- as internal inconsistency rather
-    than as a disagreement between two LCDM fits.
+    growth implied by the reconstructed expansion history under GR? A first
+    integral of the growth equation, anchored at one redshift, is constant at
+    ``Omega_m H0^2`` whatever the dark energy and the curvature -- with no
+    ``sigma_8``, no second derivative and no calibration. Given an early-universe
+    ``Omega_m h^2``, the same relation returns ``sigma_8`` today: the S8 question
+    asked without a late-time model.
 
 ``isotropy.py``
     The cosmological principle, from BAO measured across the sky.
@@ -65,6 +68,8 @@ from CosmoRecon.consistency.base import (
 from CosmoRecon.consistency.curvature import Curvature
 
 from CosmoRecon.consistency.duality import Duality
+
+from CosmoRecon.consistency.growth import Growth
 
 from CosmoRecon.consistency.litmus import CurvedLitmus, Litmus
 
@@ -84,4 +89,5 @@ __all__ = [
     "Duality",
     "Litmus",
     "CurvedLitmus",
+    "Growth",
 ]

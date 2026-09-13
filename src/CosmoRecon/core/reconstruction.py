@@ -125,6 +125,7 @@ class Reconstruction:
         "_analytic",
         "_origin",
         "_independent",
+        "_shuffled",
         "provenance",
         "label",
         "unit",
@@ -146,6 +147,7 @@ class Reconstruction:
         label: str = "",
         unit: str = "",
         independent: bool = False,
+        shuffled: bool = False,
     ) -> None:
 
         if draws is None and predictor is None:
@@ -191,6 +193,11 @@ class Reconstruction:
         self._origin = origin
 
         self._independent = independent
+
+        #: The draws are already in the order the independence claim puts
+        #: them in -- they came out of combining declared fits -- so aligning
+        #: them again must not permute them a second time. See :func:`_align`.
+        self._shuffled = shuffled
 
         self.provenance = provenance
 
@@ -458,6 +465,7 @@ class Reconstruction:
             label=self.label,
             unit=self.unit,
             independent=self._independent,
+            shuffled=self._shuffled,
         )
 
     def d(
@@ -501,6 +509,7 @@ class Reconstruction:
                 label=f"{self.label}{prime}" if self.label else "",
                 unit=f"{self.unit}/z" if self.unit else "",
                 independent=self._independent,
+                shuffled=self._shuffled,
             )
 
         if not numerical:
@@ -518,15 +527,46 @@ class Reconstruction:
 
             draws = np.gradient(draws, self._z, axis=1, edge_order=2)
 
-        return Reconstruction.from_draws(
+        return self.with_draws(
             self._z,
             draws,
-            origin=self._origin,
-            provenance=self.provenance.derive(
-                f"numerical d{order}/dz{order} {self.label or 'f'}",
-            ),
+            expression=f"numerical d{order}/dz{order} {self.label or 'f'}",
             label=f"{self.label}{prime}" if self.label else "",
             unit=f"{self.unit}/z" if self.unit else "",
+        )
+
+    def with_draws(
+        self,
+        z: Redshift,
+        draws: DrawArray,
+        *,
+        expression: str,
+        label: str = "",
+        unit: str = "",
+    ) -> "Reconstruction":
+        """
+        Draws computed from this reconstruction's own draws, row by row, on
+        any grid -- a regression slope per draw, an integral per draw.
+
+        The result is in the same realisation frame: same origin, same
+        independence claim, and, if these draws were already put in the order
+        that claim implies, still in it. Building the same draws with
+        :meth:`from_draws` would drop all three, and a result that forgot it
+        was already permuted would be permuted again the next time it met
+        its own source.
+        """
+
+        return Reconstruction(
+            np.atleast_1d(np.asarray(z, dtype=float)),
+            draws=draws,
+            origin=self._origin,
+            provenance=self.provenance.derive(
+                expression, n_draws=int(np.shape(draws)[0])
+            ),
+            label=label,
+            unit=unit,
+            independent=self._independent,
+            shuffled=self._shuffled,
         )
 
     # ---------------------------------------------------------
@@ -560,6 +600,7 @@ class Reconstruction:
             label=self.label,
             unit=self.unit,
             independent=True,
+            shuffled=self._shuffled,
         )
 
     # ---------------------------------------------------------
@@ -745,8 +786,13 @@ def _align(
        must have declared :meth:`Reconstruction.assume_independent`. The
        unmarked one is the *anchor*: its draw order is preserved, so the
        result stays aligned with the rest of that fit.
-    3. **Independent members are permuted.** Their index order carries no
-       information, and permuting guarantees that none leaks in.
+    3. **Independent members are permuted, once.** Their index order carries
+       no information, and permuting guarantees that none leaks in. The
+       permutation depends only on the fit and the draw count, so every piece
+       of one declared fit is permuted identically and stays aligned with the
+       rest of it. A result built only from declared fits is already in that
+       order and is not permuted again -- otherwise ``(a + b) - a`` would
+       subtract a differently shuffled ``a`` from the one inside the sum.
     """
 
     if not recons:
@@ -855,7 +901,7 @@ def _align(
 
         draws = r.draws
 
-        if r._independent and r.origin != CONSTANT_ORIGIN:
+        if r._independent and not r._shuffled and r.origin != CONSTANT_ORIGIN:
 
             rng = np.random.default_rng([int(r.origin), int(n_common)])
 
@@ -912,6 +958,9 @@ def _derived(
         provenance=_merge_provenance(recons, expression, draws.shape[0]),
         label=_as_label(expression),
         independent=independent,
+        # Every operand was permuted (or already had been) on the way in, so
+        # these draws are in the claim's order already.
+        shuffled=independent,
     )
 
 

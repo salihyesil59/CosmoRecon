@@ -53,6 +53,14 @@ _BAO = frozenset({"DM_over_rs", "DH_over_rs", "DV_over_rs"})
 #: Supernova distance moduli, raw or reduced.
 _MODULI = frozenset({"mu", "mu_reduced"})
 
+#: The growth rate of structure.
+_GROWTH = "fsigma8"
+
+#: Points in ``u = a^(5/2)`` for the growth integral. The integrand is smooth in
+#: ``u`` all the way to ``a = 0``, and the trapezoid rule on this many points is
+#: good to a part in a million against an ODE integration.
+_GROWTH_POINTS = 20001
+
 #: Attempts at drawing a physical parameter set before giving up.
 _MAX_REDRAWS = 1000
 
@@ -338,18 +346,25 @@ class LambdaCDM(NullModel):
     ``omega_k`` if ``curved``, ``H0`` for expansion-rate data,
     ``c_over_H0_rd`` for anything measured against the sound horizon, and
     ``mu_offset`` -- the supernova zero point, absolute magnitude and ``H0``
-    together -- for distance moduli. Radiation is neglected, which at
-    ``z < 3`` is a part in ten thousand.
+    together -- for distance moduli, and ``sigma8`` for the growth rate.
+    Radiation is neglected, which at ``z < 3`` is a part in ten thousand.
+
+    The growth rate is GR's, from Heath's integral
+    ``delta ~ E(a) int_0^a da' / (a' E)^3`` -- exact for matter, curvature and a
+    cosmological constant, and checked in the test suite against an ODE
+    integration of the growth equation.
 
     Which null it is. Flat, it is the null of the Om diagnostics. With
     curvature, it is an FLRW universe, the null of the curvature test --
     though only one member of that family, since dark energy is fixed to a
     cosmological constant. For distance duality either will do: both distances
-    come from one metric, so ``eta = 1`` holds by construction.
+    come from one metric, so ``eta = 1`` holds by construction. For the
+    growth-geometry test it is GR with a cosmological constant -- one member
+    of a null that allows any expansion history.
     """
 
     #: Observables this model can predict.
-    SUPPORTED = frozenset({"H"}) | _BAO | _MODULI
+    SUPPORTED = frozenset({"H", _GROWTH}) | _BAO | _MODULI
 
     def __init__(self, *, curved: bool = False) -> None:
 
@@ -369,8 +384,7 @@ class LambdaCDM(NullModel):
 
             raise DataError(
                 f"{self.name} cannot predict {unsupported}; it knows "
-                f"{sorted(self.SUPPORTED)}. A growth observable needs a growth "
-                "model, which is a different null."
+                f"{sorted(self.SUPPORTED)}."
             )
 
         return present
@@ -393,6 +407,9 @@ class LambdaCDM(NullModel):
         if present & _MODULI:
             names.append("mu_offset")
 
+        if _GROWTH in present:
+            names.append("sigma8")
+
         return tuple(names)
 
     def bounds(self, datasets: Sequence) -> tuple[Array, Array]:
@@ -403,6 +420,7 @@ class LambdaCDM(NullModel):
             "H0": (10.0, 300.0),
             "c_over_H0_rd": (1.0, 200.0),
             "mu_offset": (0.0, 100.0),
+            "sigma8": (0.05, 3.0),
         }
 
         names = self.parameter_names(datasets)
@@ -447,6 +465,51 @@ class LambdaCDM(NullModel):
 
         return grid, E, transverse
 
+    @staticmethod
+    def _growth(omega_m: float, omega_k: float, grid: Array) -> Array:
+        """
+        ``f sigma_8 / sigma_8(0)`` on ``grid``, from Heath's integral.
+
+        With ``u = a^(5/2)`` the integral is
+        ``J(a) = (2/5) int_0^u du' / (Omega_m + Omega_k a + Omega_L a^3)^(3/2)``,
+        smooth down to ``a = 0``; then ``delta = E J`` and
+        ``f = d ln E / d ln a + 1 / (a^2 E^3 J)``.
+        """
+
+        omega_l = 1.0 - omega_m - omega_k
+
+        u = np.linspace(0.0, 1.0, _GROWTH_POINTS)
+
+        a = u**0.4
+
+        base = omega_m + omega_k * a + omega_l * a**3
+
+        if np.any(base <= 0.0):
+            raise _Unphysical
+
+        integrand = 0.4 / base**1.5
+
+        J = np.concatenate([
+            [0.0],
+            np.cumsum(0.5 * (integrand[1:] + integrand[:-1]) * np.diff(u)),
+        ])
+
+        scale = 1.0 / (1.0 + grid)
+
+        J_grid = np.interp(scale**2.5, u, J)
+
+        E2 = omega_m / scale**3 + omega_k / scale**2 + omega_l
+
+        E = np.sqrt(E2)
+
+        log_slope = -0.5 * (3.0 * omega_m / scale**3 + 2.0 * omega_k / scale**2) / E2
+
+        delta = E * J_grid
+
+        f = log_slope + 1.0 / (scale**2 * E**3 * J_grid)
+
+        return f * delta / J[-1]
+
     def predict(self, parameters: Array, datasets: Sequence) -> list[Array]:
 
         names = self.parameter_names(datasets)
@@ -459,6 +522,11 @@ class LambdaCDM(NullModel):
 
         grid, E_grid, D_grid = self._background(
             p["omega_m"], p.get("omega_k", 0.0), z_max
+        )
+
+        growth_grid = (
+            self._growth(p["omega_m"], p.get("omega_k", 0.0), grid)
+            if "sigma8" in p else None
         )
 
         out = []
@@ -491,6 +559,9 @@ class LambdaCDM(NullModel):
                 elif label == "mu":
                     value = 5.0 * np.log10((1 + z[rows]) * D[rows]) + p["mu_offset"]
 
+                elif label == _GROWTH:
+                    value = p["sigma8"] * np.interp(z[rows], grid, growth_grid)
+
                 else:  # mu_reduced
                     value = 5.0 * np.log10((1 + z[rows]) * D[rows] / z[rows]) + p["mu_offset"]
 
@@ -515,12 +586,17 @@ class LambdaCDM(NullModel):
 
         grid, E_grid, D_grid = self._background(0.3, 0.0, z_max)
 
-        ratios: dict[str, list[float]] = {"H0": [], "c_over_H0_rd": [], "mu_offset": []}
+        growth_grid = self._growth(0.3, 0.0, grid)
+
+        ratios: dict[str, list[float]] = {
+            "H0": [], "c_over_H0_rd": [], "mu_offset": [], "sigma8": [],
+        }
 
         for lay in layouts:
 
             E = np.interp(lay.z, grid, E_grid)
             D = np.interp(lay.z, grid, D_grid)
+            F = np.interp(lay.z, grid, growth_grid)
 
             for i, label in enumerate(lay.quantity):
 
@@ -536,6 +612,8 @@ class LambdaCDM(NullModel):
                     ratios["c_over_H0_rd"].append(v / (z * D[i] ** 2 / E[i]) ** (1.0 / 3.0))
                 elif label == "mu":
                     ratios["mu_offset"].append(v - 5.0 * np.log10((1 + z) * D[i]))
+                elif label == _GROWTH:
+                    ratios["sigma8"].append(v / F[i])
                 else:
                     ratios["mu_offset"].append(v - 5.0 * np.log10((1 + z) * D[i] / z))
 

@@ -400,15 +400,9 @@ class Duality(NullTest):
 
         epsilon = log_eta @ lever / float(np.sum(lever * (x - pivot)))
 
-        result = Reconstruction.from_draws(
+        return curve.with_draws(
             np.array([np.expm1(pivot)]),
             epsilon[:, None],
-            origin=curve.origin,
-            provenance=curve.provenance.derive(
-                "epsilon: weighted slope of ln eta against ln(1+z)",
-                n_draws=int(epsilon.size),
-            ),
+            expression="epsilon: weighted slope of ln eta against ln(1+z)",
             label="epsilon",
         )
-
-        return result.assume_independent() if curve._independent else result

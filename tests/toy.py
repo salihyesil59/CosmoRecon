@@ -14,6 +14,7 @@ not only that the machinery runs but that it gets the right answer.
 from __future__ import annotations
 
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 from CosmoRecon.core.errors import DerivativeUnavailableError
 from CosmoRecon.core.provenance import Provenance, new_origin
@@ -582,3 +583,150 @@ def bao_pair(universe, z, method="toy FLRW"):
         )
 
     return wrap(universe.transverse(), "DM_over_rs"), wrap(universe.radial(), "DH_over_rs")
+
+
+class GrowthUniverse:
+    """
+    ``H``, ``D_H/r_d`` and ``f sigma_8`` of an FLRW universe with a constant
+    equation of state, curvature, and a gravitational coupling that may differ
+    from Newton's.
+
+    ``G_eff / G = g_eff [1 + mu0 Omega_DE(a)]``: ``mu0`` makes it change with
+    time, as dark-energy-driven modifications of gravity do, and ``g_eff``
+    rescales it by a constant. GR is ``g_eff = 1, mu0 = 0``.
+
+    Built for the growth-geometry test, which uses the first integral of the
+    growth equation. So the growth here is **integrated** -- the second-order
+    equation, by fourth-order Runge-Kutta in ``ln a``, all draws at once from
+    the matter-dominated growing mode at ``a = 10^-3``, splined onto a fine
+    redshift grid -- and every derivative is taken numerically on that grid,
+    never through that integral.
+
+    Parameters that are drawn per realisation (``Om``, ``H0``, ``mu0``) give the
+    posterior its width.
+    """
+
+    C_KM_S = 299792.458
+
+    def __init__(self, Om=0.30, Ok=0.0, w=-1.0, mu0=0.0, g_eff=1.0, H0=70.0,
+                 rd=147.0, sigma8=0.8, n_draws=50, sigma_Om=1e-9, sigma_H0=1e-9,
+                 sigma_mu0=0.0, steps=3000, seed=0):
+
+        rng = np.random.default_rng(seed)
+
+        self.Om = rng.normal(Om, sigma_Om, n_draws)
+        self.H0 = rng.normal(H0, sigma_H0, n_draws)
+        self.mu0 = mu0 + sigma_mu0 * rng.standard_normal(n_draws)
+
+        self.Ok, self.w, self.g_eff = float(Ok), float(w), float(g_eff)
+        self.rd, self.sigma8 = float(rd), float(sigma8)
+
+        Om_, mu_ = self.Om[:, None], self.mu0[:, None]
+        Ode = 1.0 - Om_ - self.Ok
+
+        def background(a):
+            E2 = Om_ / a**3 + self.Ok / a**2 + Ode * a ** (-3 * (1 + self.w))
+            slope = 0.5 * (
+                -3 * Om_ / a**3 - 2 * self.Ok / a**2
+                - 3 * (1 + self.w) * Ode * a ** (-3 * (1 + self.w))
+            ) / E2
+            return E2, slope
+
+        def rhs(lna, state):
+            a = np.exp(lna)
+            E2, slope = background(a)
+            coupling = self.g_eff * (1 + mu_[:, 0] * (Ode[:, 0] * a ** (-3 * (1 + self.w)) / E2[:, 0]))
+            delta, velocity = state
+            source = 1.5 * coupling * Om_[:, 0] / a**3 / E2[:, 0] * delta
+            return np.array([velocity, -(2 + slope[:, 0]) * velocity + source])
+
+        lna = np.linspace(np.log(1e-3), 0.0, steps + 1)
+        step = lna[1] - lna[0]
+        state = np.array([np.full(n_draws, 1e-3), np.full(n_draws, 1e-3)])
+        history = [state]
+
+        for t in lna[:-1]:
+            k1 = rhs(t, state)
+            k2 = rhs(t + step / 2, state + step / 2 * k1)
+            k3 = rhs(t + step / 2, state + step / 2 * k2)
+            k4 = rhs(t + step, state + step * k3)
+            state = state + step / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+            history.append(state)
+
+        history = np.array(history)                    # (steps+1, 2, n_draws)
+
+        self._z = np.linspace(0.0, 3.0, 4001)
+
+        target = np.log(1.0 / (1.0 + self._z))
+
+        def on_grid(values):                           # values: (steps+1, n_draws)
+            # Cubic, not linear: a piecewise-linear history differentiates
+            # into steps that the growth test reads as a signal.
+            return CubicSpline(lna, values, axis=0)(target).T
+
+        delta, velocity = on_grid(history[:, 0]), on_grid(history[:, 1])
+
+        today = delta[:, :1]
+
+        E2, _ = background(1.0 / (1.0 + self._z)[None, :])
+
+        H = self.H0[:, None] * np.sqrt(E2)
+
+        def derivative(table):
+            return np.gradient(table, self._z, axis=1, edge_order=2)
+
+        self._H = [H, derivative(H)]
+        R = self.C_KM_S / H / self.rd
+        self._R = [R, derivative(R)]
+
+        fs8 = self.sigma8 * velocity / today
+        self._fs8 = [fs8, derivative(fs8)]
+
+        self.sigma8_of_z = self.sigma8 * delta / today
+
+    # ---------------------------------------------------------
+
+    @property
+    def bao_calibration(self) -> float:
+        """``c / (H0 rd)``."""
+
+        return self.C_KM_S / (float(self.H0.mean()) * self.rd)
+
+    def _predictor(self, tables):
+
+        def predictor(z, *, derivative=0):
+
+            if derivative >= len(tables):
+                raise DerivativeUnavailableError(
+                    f"toy provides orders 0 to {len(tables) - 1}"
+                )
+
+            z = np.atleast_1d(np.asarray(z, dtype=float))
+
+            return np.stack([np.interp(z, self._z, row) for row in tables[derivative]])
+
+        return predictor
+
+    def fit(self, z, method="toy growth", origin=None):
+        """
+        The three observables on one realisation index -- draw ``k`` of each is
+        the same universe -- as a joint posterior would give them.
+        """
+
+        origin = new_origin() if origin is None else origin
+
+        provenance = Provenance(
+            method=method, data=("mock",), seed=0, n_draws=self.H0.size
+        )
+
+        def wrap(tables, label):
+            return Reconstruction.from_predictor(
+                z, self._predictor(tables), provenance=provenance,
+                origin=origin, label=label,
+            )
+
+        return {
+            "H": wrap(self._H, "H"),
+            "DH_over_rs": wrap(self._R, "DH_over_rs"),
+            "fsigma8": wrap(self._fs8, "fsigma8"),
+        }

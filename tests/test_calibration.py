@@ -106,8 +106,18 @@ def test_the_null_model_is_the_surveys_own_fit():
 
 def test_a_null_model_refuses_what_it_cannot_predict():
 
-    with pytest.raises(DataError, match="growth"):
-        LambdaCDM().fit(growth())
+    cc = chronometers()
+
+    lensing = Dataset(
+        z=cc.z, y=cc.y, cov=cc.cov, observable="convergence", unit="",
+        name="not an observable the model knows",
+    )
+
+    with pytest.raises(DataError, match="convergence"):
+        LambdaCDM().fit(lensing)
+
+    # The growth rate it does know, with sigma8 as one more parameter.
+    assert LambdaCDM().fit(growth()).names == ("omega_m", "sigma8")
 
 
 def test_a_mock_is_the_same_kind_of_dataset_with_the_null_true():

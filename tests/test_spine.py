@@ -165,6 +165,33 @@ def test_an_independence_claim_survives_arithmetic_on_its_own_side(H):
     assert (H * pair).origin == H.origin
 
 
+def test_a_declared_fit_is_permuted_once_however_deep_the_arithmetic(H):
+    """
+    Two declared fits meeting inside a longer expression: the sum is already
+    in the order the claim put both fits in, so meeting ``a`` again must not
+    shuffle it a second time. It used to, and ``(a + b) - a`` came out with
+    the spread of three independent terms rather than being ``b``.
+    """
+
+    a = reconstruction(FlatLCDM(seed=1), Z, label="a").assume_independent()
+    b = reconstruction(FlatLCDM(seed=2), Z, label="b").assume_independent()
+
+    np.testing.assert_allclose(((a + b) - a).draws, (b + 0.0 * a).draws, atol=1e-9)
+
+    # The same for pieces of one fit taken separately: a regrid, a derivative,
+    # and draws computed from the declared fit row by row.
+    np.testing.assert_allclose(
+        ((a * b) / a.at(Z)).draws, (b + 0.0 * a).draws, rtol=1e-12
+    )
+
+    doubled = a.with_draws(Z, 2.0 * a.draws, expression="2a")
+
+    np.testing.assert_allclose(((a + b) - 0.5 * doubled).draws, (b + 0.0 * a).draws, atol=1e-9)
+
+    # And the anchored case, which was already right, stays right.
+    np.testing.assert_allclose(((H + a) - a).draws, H.draws[: (H + a).n_draws], atol=1e-9)
+
+
 def test_a_scalar_posterior_has_a_covariance_and_a_significance(H):
     """
     A one-point reconstruction -- ``H.at(0.0)``, an opacity slope -- is a

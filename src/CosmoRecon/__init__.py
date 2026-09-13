@@ -65,6 +65,7 @@ from CosmoRecon.consistency import (
     Curvature,
     CurvedLitmus,
     Duality,
+    Growth,
     Litmus,
     NullTest,
     Om,
@@ -106,6 +107,7 @@ __all__ = [
     "Duality",
     "Litmus",
     "CurvedLitmus",
+    "Growth",
     "MethodEnsemble",
     "VarianceBudget",
     # calibration

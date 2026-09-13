@@ -314,8 +314,8 @@ def growth() -> Dataset:
 
     The growth side of the library's argument. Geometry alone cannot separate
     a modification of gravity from a dark-energy equation of state; the growth
-    of structure can, which is what the growth-geometry consistency test in
-    :mod:`CosmoRecon.consistency` will be built on.
+    of structure can, which is what
+    :class:`~CosmoRecon.consistency.growth.Growth` is built on.
 
     Two blocks of the compilation are internally correlated -- WiggleZ's three
     low-redshift points and eBOSS DR14 quasars' four tomographic bins -- and

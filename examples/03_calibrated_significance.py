@@ -12,12 +12,14 @@ because under the null it is biased by more than its posterior width, and the
 chi-square reads the bias as a detection.
 
 This example reruns the same analyses, on the same data, with the same seeds,
-adds the two litmus tests for a cosmological constant, and calibrates each with
+adds the two litmus tests for a cosmological constant and the growth-geometry
+test, and calibrates each with
 :func:`CosmoRecon.validation.calibrate`:
 
 1. A null model is fitted to the same data -- flat Lambda-CDM for the Om
    diagnostics, Lambda-CDM with curvature for the curvature test, Lambda-CDM
-   distances for distance duality.
+   distances for distance duality, and flat Lambda-CDM with GR growth, sigma_8
+   one more parameter, for the growth-geometry test.
 2. Mock datasets are drawn from its parameter posterior with the released
    covariances, and every member of the ensemble is refitted to each.
 3. Each realisation is ranked by the distance of its statistic from the null
@@ -47,6 +49,7 @@ from CosmoRecon import (                                          # noqa: E402
     Duality,
     ExtrapolationWarning,
     GaussianProcess,
+    Growth,
     LambdaCDM,
     Litmus,
     MethodEnsemble,
@@ -57,6 +60,7 @@ from CosmoRecon import (                                          # noqa: E402
 from CosmoRecon.data import (                                     # noqa: E402
     chronometers,
     desi_dr2_bao,
+    growth,
     reduced_modulus,
     union3,
 )
@@ -261,4 +265,46 @@ show(calibrate(
     n_mocks=300,
     seed=24,
     name="curved litmus O(z; 0.93), DESI DR2",
+))
+
+
+# ============================================================
+# 6. Growth against geometry, Gold-2018 and DESI DR2
+# ============================================================
+
+rule("6. Growth-geometry consistency, Gold-2018 and DESI DR2, calibrated")
+
+# G(z) is constant under GR whatever the expansion history, and the null model
+# here is its narrowest member: flat Lambda-CDM with GR growth, fitted to the
+# growth rates and the radial BAO distances together, with sigma_8 as one more
+# parameter. The growth compilation and the BAO release are declared
+# independent.
+
+growth_grid = np.linspace(0.55, 1.5, 16)
+growth_grid = growth_grid[np.abs(growth_grid - 0.93) > 0.04]     # away from the anchor
+
+growth_ensemble = MethodEnsemble([
+    Cosmography("y"),
+    Cosmography("log"),
+    Cosmography("y", order=3),
+    Cosmography("y", family="monomial"),
+])
+
+growth_fit = growth_ensemble.fit(
+    growth(), grid=growth_grid, n_draws=4000, seed=31
+).with_independent(
+    growth_ensemble.fit(
+        desi_dr2_bao().select("DH_over_rs"), grid=growth_grid, n_draws=4000, seed=32
+    )
+)
+
+show(calibrate(
+    lambda s: Growth(0.93).statistic(s["fsigma8"], s["DH_over_rs"]),
+    growth_fit,
+    0.0,
+    null=LambdaCDM(),
+    marginalise_constant=True,
+    n_mocks=300,
+    seed=33,
+    name="growth G(z; 0.93), Gold-2018 + DESI DR2",
 ))

@@ -8,7 +8,7 @@ This one runs on the bundled releases -- 32 cosmic chronometers, DESI DR2 BAO
 and the Union3 supernovae -- where there is no truth to compare against and the
 output is a result rather than a check.
 
-Five things come out of it:
+Six things come out of it:
 
 1. What the data are, including the parts a user has to know before trusting
    the numbers -- an arbitrary zero point, a fiducial cosmology in the
@@ -26,6 +26,9 @@ Five things come out of it:
 5. Distance duality from Union3 and DESI DR2 -- two datasets, two fits, the
    independence between them declared -- where two nearly identical methods
    report a cosmic opacity of opposite sign.
+6. Growth against geometry: whether the Gold-2018 growth rates follow from the
+   DESI DR2 expansion history under general relativity, and the amplitude
+   ``sigma_8`` they imply -- with no dark-energy model anywhere.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from CosmoRecon import (                                          # noqa: E402
     Curvature,
     Duality,
     ExtrapolationWarning,
+    Growth,
     GaussianProcess,
     MethodEnsemble,
     Om,
@@ -52,6 +56,7 @@ from CosmoRecon import (                                          # noqa: E402
 from CosmoRecon.data import (                                     # noqa: E402
     chronometers,
     desi_dr2_bao,
+    growth,
     reduced_modulus,
     union3,
 )
@@ -351,6 +356,98 @@ print()
 
 for line in comparison.summary().splitlines()[1:]:
     print("   " + line.strip())
+
+
+# ============================================================
+# 7. Growth against geometry
+# ============================================================
+
+rule("7. Growth against geometry: Gold-2018 and DESI DR2")
+
+# Under GR, with matter the only component that clusters, the growth equation
+# has a first integral that ties f sigma_8 to the expansion rate:
+#
+#     a H d/dln a [a^2 H f sigma_8] = (3/2) Omega_m H0^2 sigma_8(z),
+#
+# whatever the dark energy and the curvature. Anchoring at one redshift
+# removes sigma_8, and G(z) is then constant at Omega_m H0^2.
+#
+# DESI's radial distance D_H/r_d is the expansion rate in units of c/r_d, so
+# the constant is Omega_m h^2 (100 r_d / c)^2. Calibrating with the sound
+# horizon and H0 = 100 makes it Omega_m h^2 -- a number the CMB fixes from
+# early-universe physics alone, whatever dark energy did later. Planck 2018:
+# Omega_m h^2 = 0.1430, r_d = 147.09 Mpc.
+#
+# Given that number, the same relation returns sigma_8 today at every
+# redshift. The growth compilation and the BAO release are different surveys,
+# and the independence is declared.
+
+OMEGA_M_H2, SOUND_HORIZON = 0.1430, 147.09
+
+growth_grid = np.linspace(0.55, 1.5, 16)
+growth_grid = growth_grid[np.abs(growth_grid - 0.93) > 0.04]   # the anchor
+
+radial = desi_dr2_bao().select("DH_over_rs")
+
+growth_ensemble = MethodEnsemble([
+    Cosmography("y"),
+    Cosmography("log"),
+    Cosmography("y", order=3),
+    Cosmography("y", family="monomial"),
+])
+
+growth_fit = growth_ensemble.fit(
+    growth(), grid=growth_grid, n_draws=4000, seed=31
+).with_independent(
+    growth_ensemble.fit(radial, grid=growth_grid, n_draws=4000, seed=32)
+)
+
+geometry = Growth(
+    0.93,
+    hubble_distance=C_LIGHT_KM_S / (100.0 * SOUND_HORIZON),
+    omega_m=OMEGA_M_H2,
+)
+
+print(f"   {len(growth())} growth rates and {len(radial)} radial BAO distances,"
+      f" over z = {growth_grid[0]:.2f} to {growth_grid[-1]:.2f}")
+print()
+print(f"   {'':36s} {'Omega_m h^2 at z = 0.55 / 1.5':>29s}  {'sigma_8(0) at z = 0.55 / 1.5':>29s}")
+
+for name, fit in list(growth_fit.members.items()) + [("-- method-marginalised", growth_fit.marginalised)]:
+
+    density = geometry.statistic(fit["fsigma8"], fit["DH_over_rs"])
+    amplitude = geometry.sigma8(fit["fsigma8"], fit["DH_over_rs"])
+
+    cells = [
+        f"{c.mean()[i]:.2f}+/-{c.std()[i]:.2f}"
+        for c in (density, amplitude) for i in (0, -1)
+    ]
+
+    print(f"   {name:36s} {cells[0]:>14s} {cells[1]:>14s}  {cells[2]:>14s} {cells[3]:>14s}")
+
+comparison = growth_fit.significance(
+    lambda s: Growth(0.93).statistic(s["fsigma8"], s["DH_over_rs"]),
+    0.0,
+    marginalise_constant=True,
+    name="G(z), tested for constancy",
+)
+
+print()
+
+for line in comparison.summary().splitlines()[1:]:
+    print("   " + line.strip())
+
+print()
+print("   Growth and geometry agree under GR, under every method. The growth")
+print("   reads Omega_m h^2 above Planck's 0.143 and sigma_8 below its 0.811, each")
+print("   within about one sigma -- the direction of the S8 tension, nowhere near")
+print("   its significance.")
+print()
+print("   Agreement is not confirmation. A coupling G_eff/G = 1 + Omega_DE(a),")
+print("   which moves G(z) by 20% on this grid, is not detected at these errors:")
+print("   calibrated on mock surveys, 0 of 6 realisations at the real errors and 3")
+print("   of 6 at a tenth of them. Twenty-two growth rates cannot see an order-")
+print("   unity change in the strength of gravity.")
 
 print()
 print("   Every significance in this example is nominal, and none should be")

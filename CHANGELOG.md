@@ -462,7 +462,72 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
       mixture 0.65. With `c/(H0 r_d)` supplied, the statistic reads
       `Omega_m = 0.26–0.30` above `z = 1`, the survey's own value.
 
+- **`consistency.Growth`** — growth–geometry consistency under general
+  relativity, the first null test that asks about gravity rather than about
+  the expansion history.
+
+  - Built on a first integral of the growth equation,
+    `a H d/dlna [a^2 H f sigma_8] = (3/2) Omega_m H0^2 sigma_8(z)`, which holds
+    whatever the dark energy and the curvature. Anchoring at one redshift
+    removes `sigma_8(z_r)` through an integral of the growth rate, so
+    `G(z; z_r)` is constant at `Omega_m H0^2`: no `sigma_8`, no second
+    derivative, no calibration to test constancy. The integral is
+    Gauss–Legendre quadrature on the reconstruction itself, per draw.
+  - Takes `H` or `D_H/r_d` for the expansion. With `hubble_constant` or
+    `hubble_distance` the statistic is `Omega_m`; with `H0 = 100` and the
+    sound horizon it is `Omega_m h^2`, an early-universe number.
+  - **What it sees.** Constancy tests whether the gravitational coupling
+    changes with time. A constant `G_eff/G ≠ 1` rescales the constant and needs
+    `omega_m` — a geometric or early-universe matter density — to be seen. The
+    amplitude is invisible to both; `Growth.sigma8` returns `sigma_8(0)` at
+    every redshift from the same relation once `Omega_m h^2` is supplied.
+  - Checked two ways before being written: against a Runge–Kutta integration
+    of the second-order growth equation, the statistic equals the input
+    `Omega_m` to `1e-4` for flat and curved ΛCDM and for `w = -0.7` and
+    `w = -1.2`; it is not constant for a coupling `1 + 0.5 Omega_DE(a)`; a
+    constant `G_eff = 1.2 G` gives `1.2 Omega_m`; and `sigma8` returns the
+    input `sigma_8` to `2e-4`.
+  - **On real data** — Gold-2018 and DESI DR2 `D_H/r_d`, declared independent,
+    four series, calibrated against 300 null universes: every member is
+    consistent (0.13–1.05 sigma), and the mixture is 0.45 sigma. Unlike the
+    earlier tests there was no nominal detection to take away. With Planck's
+    `r_d = 147.09 Mpc`, the growth reads `Omega_m h^2 = 0.17–0.26 ± 0.11–0.21`
+    across `z = 0.55–1.5` (Planck: 0.143), and with Planck's
+    `Omega_m h^2 = 0.1430` it gives `sigma_8(0) = 0.67–0.76 ± 0.10–0.15`
+    (Planck: 0.811).
+  - **And what that agreement is worth.** A coupling `1 + Omega_DE(a)`, which
+    moves `G(z)` by 20% on this grid, was injected into mock data at the real
+    redshifts and analysed the same way (six realisations per setting, 100
+    null universes each). It was found at p < 0.05 in 0/6 realisations at the
+    real errors, 1/6 at a quarter of them and 3/6 at a tenth. With GR true the
+    rejections were 0/6, 0/6 and 1/6. The data cannot see an order-unity
+    change in gravity's strength, and the result is stated as that rather
+    than as a confirmation of GR.
+  - The `f sigma_8` compilation carries a fiducial cosmology from each survey's
+    reduction. The Alcock–Paczyński correction that would undo it moves the
+    Gold-2018 values by at most 2.8% for a matter density between DESI's and
+    Planck's, against measurement errors of 8–40%, and is not applied.
+
+- **`validation.LambdaCDM` predicts `f sigma_8`**, with `sigma8` as a parameter,
+  from Heath's integral — exact for matter, curvature and Λ, and checked
+  against a Runge–Kutta integration to `2e-5`. Gold-2018 alone gives
+  `Omega_m = 0.25 ± 0.05`, `sigma_8 = 0.82 ± 0.07`.
+
+- **`Reconstruction.with_draws`** — draws computed row by row from a
+  reconstruction's own draws (a regression slope, an integral) that keep its
+  origin, its independence claim and its realisation order. The opacity slope
+  now uses it.
+
 ### Fixed
+
+- **A declared fit was permuted again each time it met itself.** Two
+  reconstructions that had both called `assume_independent()` combined into a
+  result that was itself independent, and the next combination permuted that
+  result a second time — so `(a + b) - a` had the spread of three independent
+  terms (1.70 where it should be 1) rather than being `b`. Silent, and exactly
+  the arithmetic the growth test does. A result built only from declared fits
+  is now marked as already in their order and not permuted again; the anchored
+  case, which was right, is unchanged.
 
 - **`MethodEnsemble` silently dropped every observable but one.** Handed a
   joint fit, it kept whichever name sorted first and discarded the rest — so a
@@ -514,9 +579,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the full length-scale range, which is what would have caught this before it
   shipped.
 
-- Test suite (264 tests) covering the core contract, the kernels, the GP,
+- Test suite (286 tests) covering the core contract, the kernels, the GP,
   cosmography, joint fits, the data layer, the ensemble, the Om diagnostics,
-  the curvature test, distance duality, the litmus tests and calibration by
+  the curvature test, distance duality, the litmus tests, growth–geometry
+  consistency and calibration by
   simulation: sample paths checked against the exact GP posterior to the
   Monte-Carlo floor, empirical coverage of the 68% interval over repeated
   realisations, each kernel's covariance against its spectral density, Faà di

@@ -426,6 +426,143 @@ def duality_pair(universe, z, method="toy duality"):
     )
 
 
+class DarkEnergyUniverse:
+    """
+    ``D_M/r_d``, ``D_H/r_d`` and the reduced distance modulus of an FLRW
+    universe with a constant equation of state ``w`` and curvature ``Ok``.
+
+    Built for the litmus tests, which are zero or constant exactly when
+    ``w = -1``, whatever the matter density and the curvature. The distances
+    are integrated numerically and **differentiated numerically**, to second
+    order, on a fine grid -- deliberately not through the Friedmann equation or
+    the Clarkson-Bassett-Lu relation, which is what the tests are built from.
+
+    ``w`` is drawn per realisation when ``sigma_w`` is set, because a
+    significance cannot be asked of a posterior with no width in the direction
+    the signal lies in (see :class:`FlatCPL`).
+    """
+
+    C_KM_S = 299792.458
+
+    def __init__(self, Om=0.30, Ok=0.0, w=-1.0, H0=70.0, rd=147.0,
+                 offset=0.0, n_draws=200, sigma_Om=1e-9, sigma_H0=1e-9,
+                 sigma_w=0.0, seed=0):
+
+        rng = np.random.default_rng(seed)
+
+        self.Om = rng.normal(Om, sigma_Om, n_draws)
+        self.H0 = rng.normal(H0, sigma_H0, n_draws)
+        self.w = w + sigma_w * rng.standard_normal(n_draws)
+
+        self.Ok = float(Ok)
+        self.rd = float(rd)
+        self.offset = float(offset)
+
+        self._z = np.linspace(0.0, 3.0, 4001)
+
+        z = self._z[None, :]
+
+        E = np.sqrt(
+            self.Om[:, None] * (1 + z) ** 3
+            + self.Ok * (1 + z) ** 2
+            + (1 - self.Om - self.Ok)[:, None] * (1 + z) ** (3 * (1 + self.w[:, None]))
+        )
+
+        chi = np.concatenate(
+            [np.zeros((n_draws, 1)),
+             np.cumsum(0.5 * (1 / E[:, 1:] + 1 / E[:, :-1]) * np.diff(self._z), axis=1)],
+            axis=1,
+        )
+
+        if abs(self.Ok) < 1e-12:
+            shape = chi
+        elif self.Ok > 0:
+            shape = np.sinh(np.sqrt(self.Ok) * chi) / np.sqrt(self.Ok)
+        else:
+            shape = np.sin(np.sqrt(-self.Ok) * chi) / np.sqrt(-self.Ok)
+
+        hubble = self.C_KM_S / self.H0[:, None]
+
+        distance = hubble * shape                         # Mpc
+
+        def derivative(table):
+            return np.gradient(table, self._z, axis=1, edge_order=2)
+
+        self._T = [distance / self.rd]
+        self._T.append(derivative(self._T[0]))
+        self._T.append(derivative(self._T[1]))
+
+        self._R = hubble / E / self.rd
+
+        # mu = 5 log10(d_L / Mpc) + 25 + offset; the reduced modulus subtracts
+        # 5 log10 z, and D / z -> c / H0 at the origin removes the singularity.
+        per_redshift = np.empty_like(distance)
+        per_redshift[:, 1:] = distance[:, 1:] / self._z[1:]
+        per_redshift[:, 0] = hubble[:, 0]
+
+        modulus = 5.0 * np.log10((1 + self._z) * per_redshift) + 25.0 + self.offset
+
+        self._m = [modulus]
+        self._m.append(derivative(self._m[0]))
+        self._m.append(derivative(self._m[1]))
+
+    # ---------------------------------------------------------
+
+    @property
+    def bao_calibration(self) -> float:
+        """``c / (H0 rd)``: the factor between ``D_M/r_d`` and ``(H0/c) D_M``."""
+
+        return self.C_KM_S / (float(self.H0.mean()) * self.rd)
+
+    @property
+    def modulus_calibration(self) -> float:
+        """
+        The same factor for a distance built from the reduced modulus as
+        ``z 10^((m - 25)/5) / (1+z)``: ``(c / H0) 10^(offset/5)`` in Mpc.
+        """
+
+        return self.C_KM_S / float(self.H0.mean()) * 10.0 ** (self.offset / 5.0)
+
+    def _predictor(self, tables):
+
+        def predictor(z, *, derivative=0):
+
+            if derivative >= len(tables):
+                raise DerivativeUnavailableError(
+                    f"toy provides orders 0 to {len(tables) - 1}"
+                )
+
+            z = np.atleast_1d(np.asarray(z, dtype=float))
+
+            return np.stack([np.interp(z, self._z, row) for row in tables[derivative]])
+
+        return predictor
+
+    def fit(self, z, method="toy dark energy"):
+        """
+        The three observables as one fit: shared origin, so they combine
+        without an independence claim.
+        """
+
+        origin = new_origin()
+
+        provenance = Provenance(
+            method=method, data=("mock",), seed=0, n_draws=self.H0.size
+        )
+
+        def wrap(tables, label):
+            return Reconstruction.from_predictor(
+                z, self._predictor(tables), provenance=provenance,
+                origin=origin, label=label,
+            )
+
+        return {
+            "DM_over_rs": wrap(self._T, "DM_over_rs"),
+            "DH_over_rs": wrap([self._R], "DH_over_rs"),
+            "mu_reduced": wrap(self._m, "mu_reduced"),
+        }
+
+
 def bao_pair(universe, z, method="toy FLRW"):
     """
     The two BAO observables as one aligned pair, as a joint fit would give

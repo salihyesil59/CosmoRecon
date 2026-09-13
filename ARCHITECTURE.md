@@ -296,7 +296,7 @@ that is entirely correlation.
 | `om.py` ✅ | `Om3(z1,z2,z3)` — no `H0`, no `Omega_m`, no extrapolation | **exactly 1** |
 | `curvature.py` ✅ | `Ok(z)` (Clarkson–Bassett–Lu) — needs the joint fit | constant, `= Omega_k` |
 | `duality.py` ✅ | Etherington `eta(z) = d_L / [(1+z) D_M]`; opacity slope `epsilon` — two datasets, independence declared | constant (`= 1` with a calibration) |
-| `litmus.py` | `L(z)` litmus test for `Lambda` | `0` |
+| `litmus.py` ✅ | Zunckel–Clarkson litmus test for `Lambda` from distances alone, as `Q(z)`; `CurvedLitmus` from the BAO pair, curvature removed through Clarkson–Bassett–Lu | constant (`Q = 1` with a calibration) |
 | `growth.py` | growth–geometry consistency: does measured `f sigma_8` match the growth *implied by* the reconstructed geometry under GR? | `0` |
 | `isotropy.py` | the cosmological principle, from BAO across the sky | `0` |
 

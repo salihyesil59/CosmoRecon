@@ -36,3 +36,4 @@ Thumbs.db
 *.npz
 !src/CosmoRecon/data/**/*.npz
 figures/
+.claude/
